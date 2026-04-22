@@ -5,7 +5,10 @@
       "Bash(unzip -p \"Práctica IX - Agentes de IA.docx\" word/document.xml)",
       "Bash(sed 's/w:t[^>]*>//')",
       "Bash(git -C \"C:/Users/nvclo/Desktop/proyecto IA\" config user.name)",
-      "Bash(git -C \"C:/Users/nvclo/Desktop/proyecto IA\" config user.email)"
+      "Bash(git -C \"C:/Users/nvclo/Desktop/proyecto IA\" config user.email)",
+      "Bash(python -c \"import pkg_resources; list\\(pkg_resources.parse_requirements\\(open\\('requirements.txt'\\).read\\(\\)\\)\\); print\\('requirements OK'\\)\")",
+      "Bash(python -m pytest tests/ -x --no-header -q)",
+      "Bash(echo \"EXIT: $?\")"
     ]
   }
 }

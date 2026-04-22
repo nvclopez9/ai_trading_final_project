@@ -1,3 +1,17 @@
+"""Prompt de sistema del agente conversacional de inversiones.
+
+Este módulo expone una única constante, ``SYSTEM_PROMPT``, que se inyecta como
+mensaje de sistema en el ``ChatPromptTemplate`` del agente (ver
+``src/agent/agent_builder.py``). Define el rol del asistente, reglas
+obligatorias (no inventar cifras, usar tools, citar fuentes del RAG, avisar
+antes de ejecutar compras/ventas) y un mapa intención-tool que ayuda al LLM a
+elegir la herramienta correcta. Mantener en español y sincronizado con las
+tools reales registradas en ``build_agent``.
+"""
+
+# El prompt va encerrado en triple-comillas para preservar saltos de línea y
+# legibilidad. No se parametriza (no usa placeholders) porque las variables
+# dinámicas (historial, input, scratchpad) las añade el ChatPromptTemplate.
 SYSTEM_PROMPT = """Eres un asistente experto en inversiones y mercados financieros.
 
 Tu objetivo es ayudar al usuario a entender el estado de acciones, tickers y conceptos

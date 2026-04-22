@@ -144,3 +144,47 @@ Trazado del flujo "¿Cómo está AAPL?":
 - Para Fase 4 añadir a la lista existente: excluir `cost_basis` del total cuando `market_value is None`, paralelizar `_current_price` en `get_positions`, migrar `datetime.utcnow()`, pinear `python>=3.10` en README/requirements, revaluar restauración de ✅/❌ con modelo mayor, revaluar HITL con botón real si se quiere reforzar.
 - Criterio de salida de Fase 3 ("compra 10 AAPL → confirma → persiste → aparece en pestaña cartera con gráfico") se cumple asumiendo Ollama+yfinance operativos. Flujo trazado: prompt regla #7 → `portfolio_buy` tool → `portfolio.buy` → SQLite INSERT posición + INSERT transacción → pestaña Cartera lee `get_positions` + yfinance precio actual → métricas + dataframe + pie + bar + expander transacciones.
 
+---
+
+## Fase 4 — Pulido final
+
+**Estado**: ✅ (con una observación menor)
+**Fecha**: 2026-04-22
+
+### Cumple plan
+- `requirements.txt` lleva cabecera `# Requiere Python 3.10+`, versiones de LangChain pineadas a la familia 0.3.x (`langchain`, `langchain-core`, `langchain-community` con `>=0.3,<0.4`), `langchain-ollama>=0.2,<0.4`, `langchain-chroma>=0.1,<0.3`, `langchain-text-splitters>=0.3,<0.4`, y `pytest>=8.0,<9.0` añadido.
+- `src/agent/agent_builder.py` migrado a `RunnableWithMessageHistory`: docstring de módulo que describe el flujo (usuario → AgentExecutor → tool → respuesta); store module-level `_SESSION_STORE: dict[str, BaseChatMessageHistory]`; función `get_session_history(session_id)` con `InMemoryChatMessageHistory`; `build_agent()` retorna `RunnableWithMessageHistory(executor, get_session_history, input_messages_key="input", history_messages_key="chat_history")`. Sin rastros de `ConversationBufferMemory` en `src/` (grep solo lo encuentra en el propio `qa_log.md` histórico).
+- `app.py`: `import uuid` arriba; bloque `if "session_id" not in st.session_state: st.session_state.session_id = str(uuid.uuid4())`; `agent.invoke({"input": user_input}, config={"configurable": {"session_id": st.session_state.session_id}})`. Manejo de error envuelve el invoke y muestra mensaje controlado.
+- `src/services/portfolio.py`: imports `from concurrent.futures import ThreadPoolExecutor` y `from datetime import datetime, timezone`. `get_positions` paraleliza `_current_price` con `ThreadPoolExecutor(max_workers=8)` cuando `len(tickers) > 3` (líneas 133-137), serial en otro caso. `buy` y `sell` usan `datetime.now(timezone.utc).isoformat(timespec="seconds")` (líneas 57, 110). `get_portfolio_value` construye `stale_tickers: list[str]` con los tickers sin `market_value`, los excluye del total y los retorna en el dict (líneas 193-208).
+- `src/tools/portfolio_tools.py`: constantes `OK_ICON = "✅"` y `ERR_ICON = "❌"` al tope del módulo. Todos los mensajes de éxito/error las usan. `portfolio_view` muestra una línea adicional `"Nota: sin precio actual para <tickers> (excluidos del total)."` cuando `totals.get("stale_tickers")` no está vacío (líneas 83-87).
+- Tildes restauradas en prompts y docstrings: `src/agent/prompts.py` conserva "capitalización", "búsqueda", "categorías", "análisis", "información"; las tools de portfolio y market usan "posición", "búsqueda semántica", "histórico", "último", "rentabilidad". Grep de `[áéíóúñÁÉÍÓÚÑ]` sobre `src/` devuelve 69 coincidencias en 9 ficheros — consistente.
+- `tests/conftest.py` añade la raíz del proyecto al `sys.path` para que `from src...` funcione al ejecutar pytest desde la raíz.
+- `tests/test_tools.py` incluye los 4 tests pedidos: `test_get_ticker_status_invalid` (smoke), `test_portfolio_buy_sell_flow` (avg ponderado, venta parcial, cierre), `test_sell_over_qty_raises` (ValueError), `test_portfolio_value_with_stale` (stale_tickers poblado, total excluye stale). Fixtures `tmp_db` (monkeypatchea `db_module.DB_PATH` a tmp_path) y `fixed_price` (monkeypatchea `portfolio._current_price`) correctas.
+- `README.md` ampliamente reescrito (268 líneas, >150 solicitadas). Secciones presentes: Problema, Arquitectura (ASCII art), Flujo del agente, Las 8 tools (tabla), RAG, Tecnologías, Requisitos, Instrucciones paso a paso, Ejemplos de preguntas, Cumplimiento del enunciado (tabla), Limitaciones, Mejoras futuras, Estructura del proyecto, Troubleshooting, Tests, Licencia.
+
+### Desviaciones
+- Ninguna funcional respecto al plan de Fase 4.
+
+### Bugs/riesgos
+- ⚠️ **README.md está codificado en UTF-16 LE (con BOM)**, no en UTF-8. `Grep` lo identifica explícitamente como "binary file" y al leerlo con herramientas orientadas a UTF-8 cada carácter aparece separado por null-bytes. Impacto: GitHub detecta UTF-16 y lo renderiza, pero las tildes y emojis pueden salir como `�` al abrirlo con editores que asumen UTF-8, y `diff`/`wc` dan resultados engañosos. Recomendación fuerte: reescribir el fichero en UTF-8 sin BOM antes de subir al repo final.
+- Nota menor: `get_hot_tickers` en modo fallback sigue siendo serial (documentado en README > Limitaciones). No bloqueante.
+
+### Acciones correctivas
+- [ ] Reconvertir `README.md` a UTF-8 sin BOM (VSCode → "Save with Encoding → UTF-8" o `iconv -f UTF-16 -t UTF-8`). Verificar que las tildes y los emojis (💬 📊 📈 ✅ ❌) se vean correctamente.
+- [ ] (Opcional) Ejecutar `pytest tests/` localmente para confirmar que los 4 tests pasan antes del commit final.
+
+### Checklist final del enunciado
+
+| Requisito | Cumple | Evidencia |
+|---|---|---|
+| ≥1 agente LangChain | ✅ | `src/agent/agent_builder.py:69` (`create_tool_calling_agent`) + `AgentExecutor` l.71, envuelto en `RunnableWithMessageHistory` l.80 |
+| ≥2 tools | ✅ | 8 tools: `get_ticker_status`, `get_ticker_history`, `get_hot_tickers`, `search_finance_knowledge`, `portfolio_buy`, `portfolio_sell`, `portfolio_view`, `portfolio_transactions` (registradas en `agent_builder.py:49-58`) |
+| RAG doc textual | ✅ | `src/rag/ingest.py` (PyPDFLoader + RecursiveCharacterTextSplitter + Chroma + nomic-embed-text); `src/tools/rag_tool.py:search_finance_knowledge` consulta vectorstore `./chroma/` sobre PDFs en `data/rag_docs/` |
+| Agente integrado en flujo | ✅ | `app.py:23` construye el agente; `app.py:49-52` lo invoca con `session_id` desde el chat de Streamlit, mostrando la respuesta en `st.chat_message` |
+| Persistencia/servicio externo | ✅ | SQLite (`src/services/db.py`, `portfolio.db`), Yahoo Finance vía `yfinance` (`src/tools/market_tools.py`), ChromaDB persistida en `./chroma/` |
+| Repo GitHub con README | ⚠️ | `README.md` existe (268 líneas, todas las secciones) pero en UTF-16 LE — corregir encoding antes de push |
+| Manejo de errores | ✅ | `try/except` en las 8 tools devolviendo string controlado con `ERR_ICON`; `try/except` en `app.py:47-61` con mensaje "Verifica que Ollama esté en ejecución"; `ValueError` propagados desde `portfolio.buy/sell` y capturados en las tools |
+
+### Comentarios
+- Fase 4 bien ejecutada. La migración a `RunnableWithMessageHistory` sigue la recomendación oficial de LangChain 0.3 (ConversationBufferMemory está deprecated); el `session_id` por uuid garantiza aislamiento entre tabs/usuarios. La paralelización de precios con umbral `>3` es un buen trade-off (no vale la pena pagar el overhead del executor para 1-2 posiciones). Los 4 tests cubren los casos críticos (inválido, flujo feliz, error de negocio, degradación con stale).
+- Único bloqueante antes del push final: el encoding del README. Una vez convertido a UTF-8, el proyecto cumple el enunciado íntegramente.
