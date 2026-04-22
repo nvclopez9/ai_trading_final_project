@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(update-config)",
+      "Bash(unzip -p \"Práctica IX - Agentes de IA.docx\" word/document.xml)",
+      "Bash(sed 's/w:t[^>]*>//')",
+      "Bash(git -C \"C:/Users/nvclo/Desktop/proyecto IA\" config user.name)",
+      "Bash(git -C \"C:/Users/nvclo/Desktop/proyecto IA\" config user.email)"
+    ]
+  }
+}
