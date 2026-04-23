@@ -197,8 +197,7 @@ def main() -> int:
 
     print(f"Generando embeddings con '{embeddings_model}' y persistiendo en {persist_path}...")
     # Chroma.from_documents: genera embeddings para cada chunk, crea la
-    # colección y la guarda en disco. Esta es la parte más lenta del pipeline
-    # (1-2 segundos por chunk con nomic-embed-text en CPU).
+    # colección y la guarda en disco.
     Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,

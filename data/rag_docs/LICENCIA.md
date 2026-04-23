@@ -1,29 +1,26 @@
-# Licencia del contenido educativo
+# Licencia y atribución del contenido del RAG
 
-Los documentos Markdown incluidos en esta carpeta (`01_conceptos_basicos.md`, `02_metricas_fundamentales.md`, ..., `12_etfs_y_fondos_indexados.md`, `11_glosario.md` y este archivo) son **contenido original** elaborado específicamente para este proyecto como material educativo sobre inversión y finanzas personales.
+El contenido de esta carpeta (archivos `.pdf`) está compuesto por **publicaciones oficiales de entidades reguladoras y supervisoras** descargadas directamente de sus portales públicos, sin paywall ni registro. Cada documento es **propiedad intelectual de la entidad emisora** correspondiente.
 
-## Licencia
+## Entidades emisoras
 
-Este contenido se libera bajo **CC0 1.0 Universal — Dedicación al Dominio Público**.
+- **CNMV** — Comisión Nacional del Mercado de Valores (España). <https://www.cnmv.es/>
+- **SEC / Investor.gov** — U.S. Securities and Exchange Commission, Office of Investor Education and Advocacy. Las publicaciones de la SEC son obra del Gobierno federal de EE.UU. y, por tanto, de **dominio público** en EE.UU. (17 U.S.C. § 105). <https://www.investor.gov/>
 
-En la medida permitida por la ley, los autores han renunciado a todos los derechos de autor y derechos conexos sobre este contenido. Puedes:
+## Condiciones de uso
 
-- Copiarlo, modificarlo, distribuirlo y utilizarlo con cualquier propósito, incluso comercial.
-- Incluirlo en otros proyectos sin necesidad de atribución.
-- Reindexarlo, reescribirlo o usarlo como base para otros materiales.
+Los PDFs incluidos se distribuyen en esta carpeta **exclusivamente con fines educativos** y como **base documental del sistema RAG local** del proyecto. No se modifican, no se redistribuyen comercialmente y se indica en cada caso su origen y URL de descarga oficial (ver `README.md` de esta carpeta).
 
-Texto completo de la licencia: <https://creativecommons.org/publicdomain/zero/1.0/deed.es>
+Si un titular de derechos solicita la retirada de un documento concreto, debe eliminarse de esta carpeta y reingestar el RAG.
+
+## Ficheros propios
+
+Este archivo `LICENCIA.md` y el `README.md` de esta carpeta son contenido propio del proyecto y se liberan bajo **CC0 1.0 Universal** (<https://creativecommons.org/publicdomain/zero/1.0/deed.es>).
 
 ## Aviso importante
 
-El contenido tiene carácter **puramente informativo y educativo**. No constituye:
-
-- Asesoramiento financiero personalizado.
-- Asesoramiento fiscal.
-- Recomendaciones concretas de compra o venta de ningún activo.
-
-Las cifras, tramos fiscales, rentabilidades históricas y referencias concretas pueden haber cambiado desde su redacción. Antes de tomar decisiones financieras, consulta fuentes oficiales y, si procede, a un profesional cualificado.
+El material tiene carácter **puramente informativo y educativo**. No constituye asesoramiento financiero ni fiscal personalizado. Los datos, tramos fiscales, rentabilidades y referencias concretas pueden haber cambiado desde la publicación de cada guía. Antes de tomar decisiones financieras, consulta las fuentes oficiales actualizadas y, si procede, a un profesional cualificado.
 
 ## PDFs adicionales
 
-Si el usuario añade **otros documentos (PDFs, textos)** en esta carpeta, la licencia aplicable será la que marquen esos materiales. Asegúrate de que los PDFs que añadas sean de libre uso: documentos de organismos públicos (CNMV, Banco de España, BCE, ESMA), material con licencia Creative Commons compatible, o documentos propios.
+Si el usuario añade **otros documentos** en esta carpeta, la licencia aplicable será la que marquen esos materiales. Asegúrate de que los PDFs que añadas sean de libre uso: documentos de organismos públicos (CNMV, Banco de España, BCE, ESMA, SEC, FINRA, OCDE), material con licencia Creative Commons compatible, o documentos propios.

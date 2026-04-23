@@ -2,34 +2,45 @@
 
 Esta carpeta contiene el corpus de educación financiera que el agente usa para responder a preguntas conceptuales (qué es un PER, cómo funciona el DCA, qué significa drawdown, fiscalidad básica en España, etc.).
 
-## Qué hay ya
+## Qué hay
 
-Se incluye contenido **original del proyecto** en formato Markdown, en español, bajo licencia CC0 (ver `LICENCIA.md`). Cada documento cubre un bloque temático:
+**PDFs oficiales publicados en abierto por entidades reguladoras/supervisoras.** Nada de blogs, cursos privados ni contenido de pago. Cada documento se ha descargado directamente del portal de la entidad emisora.
 
-- `01_conceptos_basicos.md` — Acciones, bonos, ETFs, fondos, dividendos, términos base.
-- `02_metricas_fundamentales.md` — PER, EPS, ROE, ROA, P/B, market cap, beta, FCF, EV/EBITDA.
-- `03_analisis_fundamental.md` — Estados financieros, valoración intrínseca, value vs growth.
-- `04_analisis_tecnico.md` — Tendencia, soporte/resistencia, medias móviles, RSI, MACD.
-- `05_estrategias_largo_plazo.md` — Buy & hold, value, growth, dividend, DCA, indexación.
-- `06_diversificacion_asset_allocation.md` — Asignación por perfil, correlaciones, rebalanceo.
-- `07_riesgo.md` — Tipos de riesgo, volatilidad, drawdown, ratio Sharpe, VaR.
-- `08_indices_y_mercados.md` — S&P 500, Dow, Nasdaq, IBEX 35, Euro Stoxx 50, MSCI World.
-- `09_psicologia_del_inversor.md` — Sesgos, errores típicos, importancia del plan.
-- `10_fiscalidad_espana_basica.md` — Tramos del ahorro, retenciones, compensación de pérdidas, regla de los 2 meses.
-- `11_glosario.md` — ~80 términos alfabéticos de consulta rápida.
-- `12_etfs_y_fondos_indexados.md` — TER, acumulación vs distribución, UCITS, ejemplos (VWCE, IWDA, CSPX).
+| Archivo | Entidad | Descripción | URL oficial |
+|---|---|---|---|
+| `cnmv_50_preguntas_inversion.pdf` | CNMV | 50 preguntas y respuestas básicas sobre inversión (glosario y conceptos clave). | <https://www.cnmv.es/DocPortal/Publicaciones/Guias/Guia_50_preguntas.pdf> |
+| `cnmv_guia_accionista.pdf` | CNMV | Los derechos de los accionistas: qué implica ser accionista, derechos económicos y políticos. | <https://www.cnmv.es/DocPortal/Publicaciones/Guias/guia_accionistacc.pdf> |
+| `cnmv_guia_productos_renta_fija.pdf` | CNMV | "Qué debe saber de... los productos de renta fija" (bonos, letras, obligaciones). | <https://www.cnmv.es/DocPortal/Publicaciones/Guias/guia_rentafija.pdf> |
+| `cnmv_guia_fondos_inversion.pdf` | CNMV | Los fondos de inversión y la inversión colectiva. | <https://www.cnmv.es/DocPortal/Publicaciones/Guias/Los_fondos_de_inversion.pdf> |
+| `cnmv_manual_universitarios_mercado_valores.pdf` | CNMV | Manual para universitarios: el mercado de valores y los productos de inversión. | <http://www.cnmv.es/DocPortal/Publicaciones/Guias/ManualUniversitarios.pdf> |
+| `cnmv_psicologia_economica_inversores.pdf` | CNMV | Psicología económica para inversores (sesgos, heurísticos, errores típicos). | <https://www.cnmv.es/DocPortal/Publicaciones/Guias/Psicologia_economica_para_inversores.pdf> |
+| `cnmv_fiscalidad_acciones_irpf.pdf` | CNMV | Fiscalidad de las acciones cotizadas en el IRPF (España). | <https://www.cnmv.es/DocPortal/Publicaciones/Guias/GuiaFiscalidadAcciones2026.pdf> |
+| `cnmv_fiscalidad_fondos_irpf.pdf` | CNMV | Fiscalidad de los fondos de inversión en el IRPF (España). | <https://www.cnmv.es/docportal/publicaciones/guias/guia_fiscalidad_fondos_de_inversion.pdf> |
+| `sec_saving_and_investing_roadmap.pdf` | SEC / Investor.gov | "Saving and Investing — A Roadmap to Your Financial Security" (conceptos básicos, planificación). | <https://www.investor.gov/sites/investorgov/files/2019-02/Saving-and-Investing.pdf> |
+| `sec_mutual_funds_and_etfs.pdf` | SEC / Investor.gov | "Mutual Funds and ETFs — A Guide for Investors" (fondos, ETFs, comisiones, clases). | <https://www.investor.gov/sites/investorgov/files/2019-02/mutual-funds-ETFs.pdf> |
 
-Todos los documentos terminan con un disclaimer recordando que es información general, no asesoramiento financiero.
+Los PDFs de la CNMV están en **español**; los de la SEC en **inglés**. El RAG mezcla ambos idiomas sin problema porque el embedding `nomic-embed-text` es multilingüe.
+
+## Cobertura temática
+
+- **Conceptos básicos**: acciones, bonos, ETFs, fondos (CNMV 50 preguntas, Manual universitarios, SEC Saving and Investing).
+- **Métricas fundamentales y análisis**: Manual universitarios CNMV.
+- **Renta fija**: CNMV Productos de renta fija.
+- **Fondos y ETFs**: CNMV Fondos de inversión + SEC Mutual Funds and ETFs.
+- **Derechos del accionista**: CNMV Guía del accionista.
+- **Psicología del inversor / sesgos**: CNMV Psicología económica para inversores.
+- **Fiscalidad España**: CNMV Fiscalidad acciones + Fiscalidad fondos.
+- **Planificación y estrategia**: SEC Saving and Investing Roadmap.
 
 ## Añadir más documentos (opcional)
 
 Puedes añadir material adicional en esta carpeta:
 
-- **PDFs** de fuentes libres: guías de la CNMV, Banco de España, ESMA; informes del BCE; material de universidades con licencia abierta; libros en dominio público.
+- **PDFs** de otras fuentes libres: Banco de España / finanzasparatodos.es, ESMA, BCE, FINRA, OCDE, material de universidades con licencia abierta, libros en dominio público.
 - **Ficheros `.md`** con tus propias notas o contenido que quieras añadir al RAG.
 - **Ficheros `.txt`** con apuntes o volcados de texto plano.
 
-Respeta copyright: no incluyas PDFs comerciales sin licencia de redistribución.
+Respeta copyright: no incluyas PDFs comerciales sin licencia de redistribución. Ver `LICENCIA.md`.
 
 ## Reindexar
 

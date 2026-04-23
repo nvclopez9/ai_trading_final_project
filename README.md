@@ -171,6 +171,8 @@ query del usuario
 
 **Por qué RAG tiene sentido aquí**: los conceptos financieros (P/E, value, growth, medias móviles, dividendos...) están definidos en documentos reales. Sin RAG, el LLM se inventaría detalles. Con RAG, la respuesta está anclada a un PDF concreto (glosario CNMV, guía del inversor, etc.) y el usuario puede verificarla.
 
+**Corpus actual**: 10 PDFs oficiales publicados en abierto por entidades reguladoras — 8 de la **CNMV** en español (50 preguntas sobre inversión, guía del accionista, renta fija, fondos de inversión, manual para universitarios, psicología económica para inversores, fiscalidad de acciones e IRPF, fiscalidad de fondos) y 2 de la **SEC / Investor.gov** en inglés (Saving and Investing Roadmap, Mutual Funds and ETFs). Ver `data/rag_docs/README.md` para la lista completa con URLs y entidad emisora, y `data/rag_docs/LICENCIA.md` para las condiciones de uso. Nada de blogs ni cursos privados: sólo material publicado oficialmente y gratuito.
+
 **Por qué 800/120**: 800 caracteres por chunk es un compromiso entre contexto suficiente para responder y no saturar el prompt. 120 de overlap evita partir frases entre chunks consecutivos.
 
 **Por qué k=4**: suficiente diversidad de fragmentos para cubrir la respuesta sin ensuciar el context window con resultados poco relevantes.
@@ -190,10 +192,10 @@ Ambos directorios están en `.gitignore` — cada usuario tiene su propia carter
 
 ## 🧰 Tecnologías
 
-- **Python 3.10+** (usa PEP 604 `float | None` y PEP 585 `list[dict]`).
+- **Python 3.12 / 3.13** (usa PEP 604 `float | None` y PEP 585 `list[dict]`).
 - **Streamlit** — UI y lógica de la app.
 - **LangChain 0.3.x** — `langchain`, `langchain-core`, `langchain-community`, `langchain-ollama`, `langchain-chroma`, `langchain-text-splitters`.
-- **Ollama** local — LLM `gemma3:4b` + embeddings `nomic-embed-text`.
+- **Ollama** local — LLM `gemma3:4b` + embeddings `nomic-embed-text` (o `mxbai-embed-large` como alternativa).
 - **yfinance** — datos de mercado (scraping de Yahoo Finance).
 - **ChromaDB** — vectorstore local para el RAG.
 - **SQLite** — persistencia de la cartera simulada (incluido en la stdlib).
@@ -207,66 +209,72 @@ Ambos directorios están en `.gitignore` — cada usuario tiene su propia carter
 ## ✅ Requisitos previos
 
 - [**Ollama**](https://ollama.com/) instalado y en ejecución (`ollama serve`).
-- **Python 3.10 o superior** (por anotaciones PEP 604/585).
+- **Python 3.10 – 3.13 (recomendado 3.12 o 3.13). Python 3.14 NO funciona hoy: pydantic V1 usado internamente por LangChain y Chroma aún no soporta 3.14.**
 - **Conexión a internet** para `yfinance` (Yahoo Finance).
 
 ---
 
 ## 🚀 Instalación y ejecución
 
+### Windows (PowerShell)
+
+```powershell
+# 1. Clonar el repositorio
+git clone <url>
+cd "proyecto IA"
+
+# 2. Crear venv con Python 3.13 (o 3.12)
+py -3.13 -m venv .venv
+.venv\Scripts\activate
+
+# 3. Actualizar pip e instalar dependencias
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+
+# 4. Copiar variables de entorno
+copy .env.example .env
+
+# 5. Descargar modelos Ollama (requiere Ollama instalado: https://ollama.com)
+ollama pull gemma3:4b
+ollama pull nomic-embed-text
+# Alternativa de embeddings (más precisa, más pesada): `ollama pull mxbai-embed-large`
+# Si la usas, edita EMBEDDINGS_MODEL en .env.
+
+# 6. Ingestar el RAG (10 PDFs oficiales de CNMV y SEC ya incluidos)
+python -m src.rag.ingest
+
+# 7. Arrancar la app
+streamlit run app.py
+```
+
 ### Linux / macOS (bash)
 
 ```bash
 # 1. Clonar el repositorio
-git clone <repo-url> proyecto-ia
-cd proyecto-ia
+git clone <url>
+cd "proyecto IA"
 
-# 2. Crear y activar entorno virtual
-python -m venv .venv
+# 2. Crear venv con Python 3.13 (o 3.12)
+python3.13 -m venv .venv
 source .venv/bin/activate
 
-# 3. Instalar dependencias
+# 3. Actualizar pip e instalar dependencias
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-# 4. Copiar el fichero de entorno (opcional, hay defaults razonables)
+# 4. Copiar variables de entorno
 cp .env.example .env
 
-# 5. Descargar modelos de Ollama
+# 5. Descargar modelos Ollama (requiere Ollama instalado: https://ollama.com)
 ollama pull gemma3:4b
 ollama pull nomic-embed-text
+# Alternativa de embeddings (más precisa, más pesada): `ollama pull mxbai-embed-large`
+# Si la usas, edita EMBEDDINGS_MODEL en .env.
 
-# 6. Colocar PDFs financieros en data/rag_docs/ y ejecutar la ingesta
+# 6. Ingestar el RAG (10 PDFs oficiales de CNMV y SEC ya incluidos)
 python -m src.rag.ingest
 
-# 7. Lanzar la aplicación
-streamlit run app.py
-```
-
-### Windows (PowerShell)
-
-```powershell
-# 1. Clonar
-git clone <repo-url> proyecto-ia
-cd proyecto-ia
-
-# 2. Entorno virtual
-python -m venv .venv
-.venv\Scripts\activate
-
-# 3. Dependencias
-pip install -r requirements.txt
-
-# 4. Variables de entorno
-copy .env.example .env
-
-# 5. Modelos Ollama
-ollama pull gemma3:4b
-ollama pull nomic-embed-text
-
-# 6. Ingesta RAG
-python -m src.rag.ingest
-
-# 7. Arrancar Streamlit
+# 7. Arrancar la app
 streamlit run app.py
 ```
 
@@ -422,6 +430,13 @@ proyecto IA/
 - **Python < 3.10**
   El proyecto usa anotaciones `float | None` (PEP 604) y `list[dict]` (PEP 585). Actualiza a Python 3.10+ o rompe en el import.
 
+### Error `TypeError: 'function' object is not subscriptable` al importar langchain
+Tu intérprete es Python 3.14. Recrea el venv con Python 3.13:
+rmdir /s /q .venv
+py -3.13 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+
 ---
 
 ## 📜 Licencia
@@ -441,4 +456,4 @@ Uso educativo. Proyecto desarrollado como **Práctica IX** del curso de Agentes 
 - Al profesor del curso de Agentes de IA por la práctica y las revisiones.
 - A la comunidad de **LangChain** por la documentación y los ejemplos de tool-calling.
 - A **Ollama** por democratizar el LLM local.
-- A los autores de los PDFs financieros (CNMV, guías de inversor, análisis técnico) cuyos contenidos alimentan el RAG educativo de este proyecto.
+- A la **CNMV** y a la **SEC / Investor.gov** por publicar en abierto las guías y manuales de educación financiera que alimentan el RAG de este proyecto.

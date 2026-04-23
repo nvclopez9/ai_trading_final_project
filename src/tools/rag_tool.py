@@ -52,27 +52,18 @@ def _get_vectorstore():
     # Ubicación del Chroma persistido: mismo default que ingest.py para evitar drift.
     chroma_dir = os.getenv("CHROMA_DIR", "chroma")
     persist_path = Path(chroma_dir)
-    # Si el directorio no existe o está vacío, el usuario no ha corrido la ingesta.
-    # Devolvemos un mensaje accionable en lugar de reventar con un stacktrace.
     if not persist_path.exists() or not any(persist_path.iterdir()):
         _init_error = "Base de conocimiento no inicializada. Ejecuta `python -m src.rag.ingest` primero."
         return None
 
     try:
-        # Los embeddings DEBEN ser los mismos (modelo + host) que se usaron en
-        # la ingesta; si no, los vectores viven en espacios distintos y la
-        # similitud no tiene sentido.
         host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         embeddings_model = os.getenv("EMBEDDINGS_MODEL", "nomic-embed-text")
         embeddings = OllamaEmbeddings(model=embeddings_model, base_url=host)
-        # Abrimos el vectorstore apuntando al mismo persist_directory que escribió ingest.
         _vectorstore = Chroma(
             persist_directory=str(persist_path),
             embedding_function=embeddings,
         )
-        # Sanity check: que el collection tenga al menos un embedding. Accede
-        # a API privada (_collection) — aceptable como guardarraíl; si la API
-        # cambia, el try/except la silencia y seguimos usando el vectorstore.
         try:
             if _vectorstore._collection.count() == 0:
                 _init_error = "Base de conocimiento vacía. Ejecuta `python -m src.rag.ingest` primero."
