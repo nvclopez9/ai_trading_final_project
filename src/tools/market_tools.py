@@ -242,3 +242,86 @@ def get_hot_tickers(category: str = "gainers") -> str:
         return _format_table(rows, cat)
     except Exception as e:
         return f"Error obteniendo tickers calientes: {e}"
+
+
+def _extract_news_item(item: dict) -> dict | None:
+    """Normaliza un item de ``yf.Ticker(t).news`` a {title, date, source, link}.
+
+    yfinance ha ido cambiando el esquema entre versiones. Intentamos primero
+    la estructura plana legacy (``title``, ``providerPublishTime``, etc.) y
+    caemos a la anidada moderna (``content.title``, ``content.pubDate``...).
+    Si no hay título reconocible devolvemos None — el caller lo filtra.
+    """
+    import datetime as _dt
+    title = item.get("title")
+    link = item.get("link")
+    source = item.get("publisher")
+    ts = item.get("providerPublishTime")
+    date_str = None
+    if isinstance(ts, (int, float)) and ts > 0:
+        try:
+            date_str = _dt.datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d")
+        except Exception:
+            date_str = None
+
+    # Esquema moderno: {"content": {...}}
+    if not title:
+        content = item.get("content") or {}
+        title = content.get("title")
+        link = link or (content.get("canonicalUrl") or {}).get("url") or (content.get("clickThroughUrl") or {}).get("url")
+        provider = content.get("provider") or {}
+        source = source or provider.get("displayName")
+        pub = content.get("pubDate") or content.get("displayTime")
+        if pub and not date_str:
+            date_str = str(pub)[:10]
+
+    if not title:
+        return None
+    return {
+        "title": title.strip(),
+        "date": date_str or "s/f",
+        "source": source or "desconocido",
+        "link": link or "",
+    }
+
+
+def fetch_ticker_news(ticker: str, limit: int = 5) -> list[dict]:
+    """Helper reutilizable (no @tool): lista de noticias ya normalizadas.
+
+    Usada tanto por la tool ``get_ticker_news`` como por el panel de la UI,
+    para evitar duplicar la lógica de normalización del esquema de yfinance.
+    Silencia errores devolviendo lista vacía; el caller decide cómo avisar.
+    """
+    try:
+        symbol = ticker.strip().upper()
+        raw = yf.Ticker(symbol).news or []
+    except Exception:
+        return []
+    items = []
+    for it in raw:
+        norm = _extract_news_item(it)
+        if norm:
+            items.append(norm)
+        if len(items) >= max(1, min(limit, 10)):
+            break
+    return items
+
+
+@tool
+def get_ticker_news(ticker: str, limit: int = 5) -> str:
+    """Devuelve las últimas noticias relevantes de un ticker (titular, fecha, fuente, enlace).
+    Parámetros: ticker (símbolo, p. ej. 'AAPL'), limit (máximo de noticias, 1-10, default 5).
+    Fuente: Yahoo Finance (sin API key). Usa esta tool cuando el usuario pregunte por noticias,
+    titulares o novedades de una empresa."""
+    try:
+        items = fetch_ticker_news(ticker, limit)
+    except Exception as e:
+        return f"No pude obtener noticias para {ticker.upper()} ahora mismo: {e}"
+    if not items:
+        return f"No se encontraron noticias recientes para {ticker.strip().upper()}."
+    lines = [f"📰 Noticias recientes para {ticker.strip().upper()} ({len(items)}):", ""]
+    for i, n in enumerate(items, start=1):
+        lines.append(f"{i}. [{n['date']}] {n['title']} — {n['source']}")
+        if n["link"]:
+            lines.append(f"   {n['link']}")
+    return "\n".join(lines)

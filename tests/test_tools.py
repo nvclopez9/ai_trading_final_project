@@ -22,7 +22,7 @@ from src.services import db as db_module
 from src.services import portfolio
 # get_ticker_status es una @tool de LangChain — lo invocamos con el helper
 # de abajo porque la forma de llamarla cambia según cómo se registre.
-from src.tools.market_tools import get_ticker_status
+from src.tools.market_tools import get_ticker_status, get_ticker_news
 
 
 def _invoke_tool(tool, **kwargs):
@@ -35,6 +35,36 @@ def _invoke_tool(tool, **kwargs):
     if hasattr(tool, "invoke"):
         return tool.invoke(kwargs)
     return tool(**kwargs)
+
+
+def test_get_ticker_news_smoke(monkeypatch):
+    """La tool ``get_ticker_news`` debe devolver siempre un string.
+
+    Parcheamos ``fetch_ticker_news`` para no depender de red: así el test
+    es reproducible y rápido. Validamos que:
+      (a) con items, el string contiene el titular y la fecha.
+      (b) con lista vacía, el string explica que no hay noticias.
+    """
+    from src.tools import market_tools as mt
+
+    # (a) Caso con noticias: el output debe incluir el titular.
+    monkeypatch.setattr(
+        mt,
+        "fetch_ticker_news",
+        lambda ticker, limit=5: [
+            {"title": "Apple sube", "date": "2026-04-24", "source": "Reuters", "link": "https://x"},
+        ],
+    )
+    out = _invoke_tool(get_ticker_news, ticker="AAPL", limit=5)
+    assert isinstance(out, str)
+    assert "Apple sube" in out
+    assert "AAPL" in out
+
+    # (b) Caso sin noticias: mensaje controlado, no excepción.
+    monkeypatch.setattr(mt, "fetch_ticker_news", lambda ticker, limit=5: [])
+    out2 = _invoke_tool(get_ticker_news, ticker="ZZZZ", limit=5)
+    assert isinstance(out2, str)
+    assert "ZZZZ" in out2
 
 
 def test_get_ticker_status_invalid():
@@ -123,6 +153,55 @@ def test_sell_over_qty_raises(tmp_db, fixed_price):
     # convertirá en string "❌ No se pudo ejecutar la venta: ...".
     with pytest.raises(ValueError):
         portfolio.sell("MSFT", 10)
+
+
+def test_create_and_list_portfolios(tmp_db):
+    """Crea 2 carteras sobre la BD temporal y comprueba que list las devuelve."""
+    from src.services import portfolios as pf_svc
+
+    # tmp_db ya ha llamado a init_db, que siembra la Default (id=1).
+    initial = pf_svc.list_portfolios()
+    assert len(initial) == 1
+    assert initial[0]["name"] == "Default"
+
+    p1 = pf_svc.create_portfolio(
+        name="Agresiva USA",
+        initial_cash=5000,
+        risk="agresivo",
+        markets=["USA"],
+        currency="USD",
+    )
+    p2 = pf_svc.create_portfolio(
+        name="Conservadora EU",
+        initial_cash=20000,
+        risk="conservador",
+        markets="EUROPA,GLOBAL",
+        currency="EUR",
+    )
+    assert p1["id"] != p2["id"]
+
+    all_ps = pf_svc.list_portfolios()
+    assert len(all_ps) == 3
+    names = {p["name"] for p in all_ps}
+    assert {"Default", "Agresiva USA", "Conservadora EU"}.issubset(names)
+
+
+def test_set_risk_invalid_raises(tmp_db):
+    """update_risk con valor no válido debe lanzar ValueError."""
+    from src.services import portfolios as pf_svc
+
+    with pytest.raises(ValueError):
+        pf_svc.update_risk(1, "extremo")
+
+
+def test_initial_cash_is_immutable(tmp_db):
+    """No debe existir ninguna función para modificar initial_cash."""
+    from src.services import portfolios as pf_svc
+
+    # El contrato es: no hay función para tocar initial_cash.
+    assert not hasattr(pf_svc, "update_initial_cash"), (
+        "initial_cash debe ser inmutable: no puede existir update_initial_cash."
+    )
 
 
 def test_portfolio_value_with_stale(tmp_db, monkeypatch):

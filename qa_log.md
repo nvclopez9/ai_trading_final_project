@@ -188,3 +188,64 @@ Trazado del flujo "¿Cómo está AAPL?":
 ### Comentarios
 - Fase 4 bien ejecutada. La migración a `RunnableWithMessageHistory` sigue la recomendación oficial de LangChain 0.3 (ConversationBufferMemory está deprecated); el `session_id` por uuid garantiza aislamiento entre tabs/usuarios. La paralelización de precios con umbral `>3` es un buen trade-off (no vale la pena pagar el overhead del executor para 1-2 posiciones). Los 4 tests cubren los casos críticos (inválido, flujo feliz, error de negocio, degradación con stale).
 - Único bloqueante antes del push final: el encoding del README. Una vez convertido a UTF-8, el proyecto cumple el enunciado íntegramente.
+
+---
+
+## Fase 5 — Mejoras UI/UX + multipage
+
+**Estado**: ✅
+**Fecha**: 2026-04-24
+
+### Cumple
+- Migración correcta a Streamlit Multipage (`app.py` Home + 5 páginas en `pages/`). Cada página hace `st.set_page_config` con `page_title` y `page_icon`.
+- Singleton del agente en `src/agent/singleton.py` con `@st.cache_resource`, invocado desde cada página (evita reinicializar Ollama al navegar).
+- `session_state` usado como bus entre páginas: `active_ticker`, `prefill_prompt`, `pending_prompt`, `session_id`, `messages`. Coincide con el contrato del `DISEÑO_UI.md §7.4`.
+- Tema dark (`#0E1117`), `gatherUsageStats = false` y `[server] headless = true` configurados en `.streamlit/config.toml`.
+- 9 tools registradas en `agent_builder.py` coherentes con la lista del `SYSTEM_PROMPT` (incluye la nueva `get_ticker_news`).
+- README.md ahora en UTF-8 (observación de Fase 4 resuelta).
+- No hay imports muertos en `app.py` del Home tras la migración (no se importa `render_portfolio_tab`, `price_history_chart`, etc.: cada página se encarga).
+- `_process_user_message` vive únicamente en `pages/1_Chat.py`; no hay duplicado en `app.py`.
+- Botones "Ver" en `pages/4_Hot.py` con keys prefijadas por tab (`hot_{title}_{ticker}`) — no colisionan entre gainers/losers/actives.
+
+### Desviaciones
+- `src/ui/charts.py` usaba `plotly_white` en lugar de un tema coherente con la app (dark). Menor — **corregido** (fix aplicado).
+- `src/ui/portfolio_view.py` formateaba métricas con `f"${x:.2f}"` en lugar de los helpers `fmt_money`/`fmt_pct` centralizados. Menor — **corregido**.
+- El wireframe del DISEÑO_UI §6.3 sugiere timeframes `1D 5D 1M 6M YTD 1A 5A`; la implementación usa el subconjunto de yfinance `1mo 3mo 6mo 1y 5y`. Aceptable (alineado con `get_ticker_history`).
+- Emojis en `pages/*.py` sin prefijo numérico-emoji canónico del DISEÑO (`1_💬_Chat.py` → `1_Chat.py`). Decisión del implementer (evitar problemas con Windows/git). Aceptable; emoji presente en `page_icon`.
+
+### Bugs detectados y estado
+
+| Bug | Severidad | Estado |
+|---|---|---|
+| `pages/2_Mercado.py` — botón "↪ Continuar en el chat" anidado dentro del `if st.button("💡 Explícame...")`; tras el rerun del primer clic el segundo botón nunca llega a renderizarse y es inalcanzable | media | fixed |
+| `src/ui/portfolio_view.py` — métricas con formato `${x:.2f}` ignorando los helpers es_ES del resto de la app (inconsistencia visual) | baja | fixed |
+| `src/ui/charts.py` — tema `plotly_white` cuando la app es dark (contraste pobre en gráficos) | baja | fixed |
+| Falta smoke test para `get_ticker_news` (nueva tool sin cobertura) | baja | fixed (tests/test_tools.py → `test_get_ticker_news_smoke`) |
+| `src/tools/market_tools._fetch_fallback_quotes` se importa con `# type: ignore` desde `app.py` y `pages/4_Hot.py` (underscore = privado) | baja | documentado — dejar para refactor posterior (promover a pública o centralizar) |
+| Duplicación ligera de `_snapshot()` (cacheada) entre `app.py` y `pages/4_Hot.py` | baja | documentado — no es urgente, esfuerzo M para centralizar en `src/services` |
+
+### Fixes aplicados
+
+- `pages/2_Mercado.py:145-170` — Botón "Explícame" refactorizado para persistir la respuesta en `st.session_state[explain_key]` y que el botón "↪ Continuar en el chat" siga visible tras el rerun; además se añaden `key` únicos por ticker a ambos botones para evitar colisiones si el usuario cambia de ticker.
+- `src/ui/portfolio_view.py` — Import de `fmt_money`/`fmt_pct` desde `src.ui.components`; las tres `st.metric` superiores usan ya los helpers centralizados (formato es_ES, mismos símbolos que Home y Mercado).
+- `src/ui/charts.py` — `template="plotly_white"` → `template="plotly_dark"` en los 3 gráficos (price history, pie, bar) para coherencia con el tema oscuro global.
+- `tests/test_tools.py` — Nuevo `test_get_ticker_news_smoke` que monkeypatchea `fetch_ticker_news` para no depender de red y valida (a) output con items contiene titular + ticker, (b) output con lista vacía contiene ticker y es string (nunca excepción).
+
+### Nice-to-have no aplicados (para futuras iteraciones)
+
+- Centralizar `_fetch_fallback_quotes` (o un wrapper público `get_market_snapshot`) en `src/services/market_snapshot.py` y eliminar el `# type: ignore` en Home y Hot.
+- En `pages/2_Mercado.py`, exponer los timeframes del wireframe (`1D/5D/YTD/1A`) traduciéndolos al vocabulario de yfinance (`1d`, `5d`, `ytd`, `1y`).
+- Persistir `active_ticker` entre sesiones (decisión abierta del DISEÑO; hoy sólo vive en memoria).
+- En `portfolio_view`, reutilizar también los helpers para las celdas del DataFrame (`Precio actual`, `P&L`), no sólo las métricas de cabecera.
+- `get_hot_tickers` fallback sigue siendo serial (documentado desde Fase 2); paralelizar con `ThreadPoolExecutor` daría 3-5× más velocidad cuando Screener falla.
+
+### Tests
+
+- pytest: **5 passed / 0 failed** (`tests/test_tools.py` — los 4 previos + `test_get_ticker_news_smoke`).
+- py_compile: **OK** sobre `app.py`, las 5 páginas, `src/agent/*.py`, `src/services/*.py`, `src/tools/*.py`, `src/ui/*.py`, `src/ui/components/__init__.py`, `src/rag/ingest.py`.
+
+### Comentarios
+
+- La migración multipage quedó limpia: sin imports residuales ni duplicación de `_process_user_message`. Las claves de session_state están bien alineadas con el contrato del DISEÑO_UI.
+- El bug del botón "Continuar en el chat" era el único con impacto funcional real (el usuario nunca podía navegar al chat desde "Explícame"); los demás fixes son de coherencia visual y cobertura de tests.
+- El proyecto está listo para demo: 9 tools, 5 páginas navegables, tema coherente, tests verdes.

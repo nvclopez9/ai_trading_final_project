@@ -64,13 +64,21 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 # Prompt de sistema en español con reglas y mapa intención->tool.
 from src.agent.prompts import SYSTEM_PROMPT
 # Las 8 tools del agente, organizadas en 3 módulos (mercado, RAG, cartera).
-from src.tools.market_tools import get_ticker_status, get_ticker_history, get_hot_tickers
+from src.tools.market_tools import (
+    get_ticker_status,
+    get_ticker_history,
+    get_hot_tickers,
+    get_ticker_news,
+)
 from src.tools.rag_tool import search_finance_knowledge
 from src.tools.portfolio_tools import (
     portfolio_buy,
     portfolio_sell,
     portfolio_view,
     portfolio_transactions,
+    portfolio_list,
+    portfolio_set_risk,
+    portfolio_set_markets,
 )
 
 load_dotenv()
@@ -126,11 +134,15 @@ def build_agent() -> RunnableWithMessageHistory:
         get_ticker_status,
         get_ticker_history,
         get_hot_tickers,
+        get_ticker_news,
         search_finance_knowledge,
         portfolio_buy,
         portfolio_sell,
         portfolio_view,
         portfolio_transactions,
+        portfolio_list,
+        portfolio_set_risk,
+        portfolio_set_markets,
     ]
 
     # Prompt del agente. Los 4 elementos son obligatorios para el tool-calling:

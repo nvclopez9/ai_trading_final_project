@@ -1,189 +1,202 @@
-"""Punto de entrada de la aplicación Streamlit del bot de inversiones.
+"""🏠 Home / Dashboard del Bot de Inversiones.
 
-Este fichero es el orquestador de la UI. NO contiene lógica de negocio:
-delega en el agente (``src/agent/agent_builder.py``), los servicios
-(``src/services/*``) y los renderers de la UI (``src/ui/*``).
+Página raíz de la app (Streamlit Multipage Apps). Desde aquí el usuario ve:
+  - Valor total de su cartera simulada y P&L del día.
+  - Top 5 posiciones con % y mini-estado.
+  - Tres listas rápidas del mercado (gainers / losers / actives).
+  - Sugerencias de prompts para entrar rápido al Chat.
 
-Estructura de la página:
-  - Cabecera (título + caption).
-  - Tres pestañas con ``st.tabs``:
-      * 💬 Chat: conversación con el agente.
-      * 📊 Cartera: tabla de posiciones + gráficos + transacciones.
-      * 📈 Gráficos: histórico de un ticker seleccionable.
-
-Puntos didácticos:
-
-1. ``@st.cache_resource`` sobre ``get_agent``: Streamlit re-ejecuta este
-   script ENTERO en cada interacción del usuario (cada click, cada tecla
-   en el chat_input, etc.). Si construyéramos el agente fuera del cache,
-   cargaríamos el modelo Ollama y compilaríamos el grafo cada vez —
-   latencia insoportable. ``cache_resource`` cachea el objeto a nivel de
-   proceso; ``init_db()`` también se ejecuta solo en la primera llamada.
-
-2. ``session_id`` con ``uuid.uuid4()`` guardado en ``st.session_state``:
-   cada pestaña del navegador recibe un uuid distinto la primera vez que
-   se carga. Ese id se pasa al agente vía ``config.configurable`` para
-   que ``RunnableWithMessageHistory`` recupere (o cree) SU historial
-   propio — aísla el chat de sesiones concurrentes.
-
-3. ``st.session_state.messages``: lista de {role, content} que
-   SOLO sirve para REPINTAR los mensajes en el chat al rerun. La memoria
-   real del agente vive dentro de ``RunnableWithMessageHistory``, no aquí.
-
-4. Manejo de errores: cualquier fallo del agente (Ollama caído, timeout,
-   etc.) se captura con try/except y se muestra un mensaje amigable.
-   Nunca se expone un stacktrace en la UI.
+Navegación:
+  - La sidebar de Streamlit muestra automáticamente las páginas bajo ``pages/``.
+  - Los botones CTA de esta home guardan ``active_ticker`` o ``prefill_prompt``
+    en session_state y hacen ``st.switch_page`` a la página correspondiente.
 """
-# uuid: identificador único por sesión de navegador.
-# streamlit: framework de la UI.
-# dotenv: cargar variables de entorno al arrancar.
-import uuid
-import streamlit as st
 from dotenv import load_dotenv
+import streamlit as st
 
-# Piezas del proyecto: BD, agente, renderer de la cartera, gráfico histórico.
-from src.services.db import init_db
-from src.agent.agent_builder import build_agent
-from src.ui.portfolio_view import render_portfolio_tab
-from src.ui.charts import price_history_chart
+from src.agent.singleton import get_agent, ensure_session_id
+from src.services.portfolio import get_positions, get_portfolio_value
+from src.services import portfolios as pf_svc
+from src.tools.portfolio_tools import set_active_portfolio
+from src.tools.market_tools import _fetch_fallback_quotes  # type: ignore
+from src.ui.components import (
+    fmt_money,
+    fmt_pct,
+    color_for_delta,
+)
 
-# Cargamos .env a nivel top-level para que las variables estén disponibles
-# antes de construir el agente (que las lee con os.getenv).
 load_dotenv()
 
-# Configuración global de la página (debe ir antes de cualquier otro st.*).
-st.set_page_config(page_title="Bot de Inversiones", page_icon=":chart_with_upwards_trend:")
-st.title("Bot de Inversiones")
-st.caption("Asistente conversacional con agente de IA (LangChain + Ollama).")
+st.set_page_config(
+    page_title="Bot de Inversiones",
+    page_icon=":chart_with_upwards_trend:",
+    layout="wide",
+)
 
+# Bootstrap: asegura BD + agente + session_id cargados antes de las demás páginas.
+_ = get_agent()
+_ = ensure_session_id()
 
-# Inicialización pesada cacheada. show_spinner muestra "Inicializando agente..."
-# mientras se descarga/arranca el modelo Ollama la primera vez.
-@st.cache_resource(show_spinner="Inicializando agente...")
-def get_agent():
-    """Inicializa la BD (idempotente) y construye el agente.
+# Onboarding al primer render de la sesión (sólo 1 vez por pestaña).
+if "first_visit" not in st.session_state:
+    st.session_state.first_visit = True
+    st.toast("¡Bienvenido! Usa la barra lateral para navegar entre secciones.", icon="👋")
 
-    Se ejecuta UNA sola vez por proceso de Streamlit gracias a cache_resource.
-    En reruns posteriores, Streamlit devuelve la instancia cacheada sin
-    volver a ejecutar el cuerpo.
-    """
-    init_db()
-    return build_agent()
+# Cabecera con saludo.
+st.title("🏠 Bot de Inversiones")
+st.caption("Tu asistente conversacional con agente de IA (LangChain + Ollama).")
 
-
-# Obtenemos el agente (cacheado). La primera vez tarda; las siguientes es instantáneo.
-agent = get_agent()
-
-# Id único por sesión: uuid4 la primera vez, persistido en session_state
-# para que sobreviva a reruns dentro de la misma pestaña del navegador.
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
-
-# Tres pestañas en la parte superior. Los emojis son decorativos (no los
-# lee el LLM, son solo UI).
-tab1, tab2, tab3 = st.tabs(["💬 Chat", "📊 Cartera", "📈 Gráficos"])
 
 # -----------------------------------------------------------------------------
-# TAB 1 — Chat con el agente
+# Fila 1 — Resumen de cartera
 # -----------------------------------------------------------------------------
-with tab1:
-    # Historial VISUAL (no es la memoria del agente): sirve para repintar la
-    # conversación cuando Streamlit re-ejecuta el script.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+# Selector breve de cartera activa (Home).
+try:
+    _all_portfolios = pf_svc.list_portfolios()
+except Exception:
+    _all_portfolios = []
 
-    # Re-render de todos los mensajes previos en su burbuja correspondiente.
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+if _all_portfolios:
+    _ids = [p["id"] for p in _all_portfolios]
+    _names = {p["id"]: p["name"] for p in _all_portfolios}
+    _cur = st.session_state.get("active_portfolio_id", _ids[0])
+    if _cur not in _ids:
+        _cur = _ids[0]
+    _sel = st.selectbox(
+        "Cartera activa",
+        options=_ids,
+        format_func=lambda i: f"#{i} · {_names[i]}",
+        index=_ids.index(_cur),
+        key="home_active_portfolio_selector",
+    )
+    st.session_state["active_portfolio_id"] = _sel
+    set_active_portfolio(_sel)
+    active_portfolio_id = _sel
+else:
+    active_portfolio_id = 1
 
-    # Input de chat anclado al fondo de la página.
-    user_input = st.chat_input("Pregunta sobre un ticker, p. ej. '¿Cómo está AAPL?'")
+with st.spinner("Calculando cartera..."):
+    try:
+        positions = get_positions(portfolio_id=active_portfolio_id)
+        pv = get_portfolio_value(portfolio_id=active_portfolio_id)
+    except Exception as e:
+        st.error(f"No pude leer la cartera: {e}")
+        positions, pv = [], {"total_value": 0, "total_cost": 0, "total_pnl": 0, "total_pnl_pct": 0, "stale_tickers": []}
 
-    # Si el usuario envió algo este rerun, lo procesamos.
-    if user_input:
-        # 1. Guardamos y pintamos el mensaje del usuario.
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
+left, right = st.columns([1, 1])
+with left:
+    _active_p = pf_svc.get_portfolio(active_portfolio_id) if _all_portfolios else None
+    _title_suffix = f" · {_active_p['name']}" if _active_p else ""
+    st.subheader(f"💼 Tu cartera{_title_suffix}")
+    total_value = pv.get("total_value", 0) or 0
+    total_pnl = pv.get("total_pnl", 0) or 0
+    total_pnl_pct = pv.get("total_pnl_pct", 0) or 0
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Valor actual", fmt_money(total_value, "USD"))
+    c2.metric("P&L", fmt_money(total_pnl, "USD"), delta=fmt_pct(total_pnl_pct))
+    c3.metric("Posiciones", str(len(positions)))
+    if st.button("Abrir cartera →"):
+        st.switch_page("pages/3_Cartera.py")
 
-        # 2. Pintamos la respuesta del asistente. placeholder permite
-        # sustituir el texto cuando llega la respuesta real (en lugar de
-        # usar un spinner externo y luego añadir un st.markdown aparte).
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            try:
-                with st.spinner("Pensando..."):
-                    # Aquí ocurre la magia: invocamos el RunnableWithMessageHistory
-                    # pasándole el input y el session_id. Por detrás:
-                    #  - Se recupera el historial de esta sesión.
-                    #  - Se compone el prompt completo.
-                    #  - El LLM decide qué tool invocar (o responder directamente).
-                    #  - AgentExecutor ejecuta el bucle hasta AgentFinish.
-                    #  - El historial se actualiza automáticamente.
-                    result = agent.invoke(
-                        {"input": user_input},
-                        config={"configurable": {"session_id": st.session_state.session_id}},
-                    )
-                # El resultado es un dict con "output" (respuesta final) y
-                # opcionalmente "intermediate_steps". Nos quedamos con output.
-                answer = result.get("output") if isinstance(result, dict) else str(result)
-                if not answer:
-                    # Fallback por si el agente devuelve cadena vacía (raro).
-                    answer = "No he podido generar una respuesta."
-            except Exception as e:
-                # Error típico: Ollama apagado, modelo no descargado, timeout.
-                # Damos instrucciones claras al usuario en vez de un stacktrace.
-                answer = (
-                    "Se ha producido un error al consultar al agente. "
-                    "Verifica que Ollama esté en ejecución y el modelo esté descargado.\n\n"
-                    f"Detalle: {e}"
-                )
-            # Renderizamos la respuesta en la burbuja del asistente.
-            placeholder.markdown(answer)
-            # Y la guardamos en el historial visual para futuros reruns.
-            st.session_state.messages.append({"role": "assistant", "content": answer})
+with right:
+    st.subheader("📌 Top posiciones")
+    if not positions:
+        st.info("Aún no tienes posiciones. Abre el Chat y di 'Compra 10 acciones de AAPL' para empezar.")
+    else:
+        top = sorted(
+            positions,
+            key=lambda p: (p.get("market_value") or 0),
+            reverse=True,
+        )[:5]
+        for p in top:
+            t = p["ticker"]
+            qty = p["qty"]
+            pnl_pct = p.get("pnl_pct")
+            col_t, col_q, col_pnl, col_btn = st.columns([1, 1, 1, 1])
+            col_t.markdown(f"**{t}**")
+            col_q.write(f"{qty} uds")
+            if pnl_pct is not None:
+                color = color_for_delta(pnl_pct)
+                col_pnl.markdown(f"<span style='color:{color};'>{fmt_pct(pnl_pct)}</span>", unsafe_allow_html=True)
+            else:
+                col_pnl.write("—")
+            if col_btn.button("Ver", key=f"home_top_{t}"):
+                st.session_state["active_ticker"] = t
+                st.switch_page("pages/2_Mercado.py")
+
+st.divider()
+
 
 # -----------------------------------------------------------------------------
-# TAB 2 — Cartera simulada
+# Fila 2 — Mercado hoy
 # -----------------------------------------------------------------------------
-with tab2:
-    # Toda la lógica vive en src/ui/portfolio_view.py para que app.py quede delgado.
-    render_portfolio_tab()
+st.subheader("🔥 Mercado hoy")
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _snapshot() -> list[dict]:
+    """Snapshot de 30 tickers. Cache 5 min para no saturar yfinance."""
+    return _fetch_fallback_quotes()
+
+
+try:
+    snapshot = _snapshot()
+except Exception:
+    snapshot = []
+
+if snapshot:
+    gainers = sorted(snapshot, key=lambda r: r["change_pct"], reverse=True)[:3]
+    losers = sorted(snapshot, key=lambda r: r["change_pct"])[:3]
+    actives = sorted(snapshot, key=lambda r: r["volume"], reverse=True)[:3]
+
+    col_g, col_l, col_a = st.columns(3)
+    with col_g:
+        st.markdown("**📈 Top gainers**")
+        for r in gainers:
+            st.markdown(
+                f"{r['ticker']} &nbsp; <span style='color:#00C851;'>+{r['change_pct']:.2f}%</span>",
+                unsafe_allow_html=True,
+            )
+    with col_l:
+        st.markdown("**📉 Top losers**")
+        for r in losers:
+            st.markdown(
+                f"{r['ticker']} &nbsp; <span style='color:#FF4444;'>{r['change_pct']:.2f}%</span>",
+                unsafe_allow_html=True,
+            )
+    with col_a:
+        st.markdown("**🔊 Most active**")
+        for r in actives:
+            vol_m = r["volume"] / 1e6 if r["volume"] else 0
+            st.markdown(f"{r['ticker']} &nbsp; {vol_m:.1f} M")
+
+    if st.button("Ver más en 🔥 Hot →"):
+        st.switch_page("pages/4_Hot.py")
+else:
+    st.info("No pudimos cargar el snapshot del mercado ahora mismo.")
+
+st.divider()
+
 
 # -----------------------------------------------------------------------------
-# TAB 3 — Gráficos de histórico
+# Fila 3 — Sugerencias del bot
 # -----------------------------------------------------------------------------
-with tab3:
-    st.subheader("Histórico de precios")
-    # Layout en tres columnas: ticker (grande), periodo (medio), botón (pequeño).
-    col_t, col_p, col_btn = st.columns([2, 1, 1])
-    with col_t:
-        # Input de ticker con default AAPL y normalización upper.
-        chart_ticker = st.text_input("Ticker", value="AAPL", key="chart_ticker").strip().upper()
-    with col_p:
-        # Selectbox con los periodos soportados por yfinance más usuales.
-        # index=2 pre-selecciona "6mo" (tercer elemento) como default sensato.
-        chart_period = st.selectbox(
-            "Periodo",
-            options=["1mo", "3mo", "6mo", "1y", "5y"],
-            index=2,
-            key="chart_period",
-        )
-    with col_btn:
-        # st.write("") reserva espacio vertical para alinear el botón con
-        # los inputs de arriba (truco visual típico en Streamlit).
-        st.write("")
-        show = st.button("Ver gráfico", key="chart_show")
+st.subheader("💡 Sugerencias para empezar")
+suggestions = [
+    "¿Cómo está AAPL?",
+    "Resumen de mi cartera",
+    "¿Qué noticias hay de NVDA?",
+    "Explícame qué es un ETF",
+]
+cols = st.columns(len(suggestions))
+for col, text in zip(cols, suggestions):
+    with col:
+        if st.button(text, key=f"home_suggest_{text}", use_container_width=True):
+            st.session_state["prefill_prompt"] = text
+            st.switch_page("pages/1_Chat.py")
 
-    # Solo pedimos el histórico cuando el usuario pulsa el botón (evita
-    # llamadas a yfinance innecesarias en cada rerun).
-    if show and chart_ticker:
-        with st.spinner(f"Cargando {chart_ticker}..."):
-            fig = price_history_chart(chart_ticker, chart_period)
-        # La función devuelve None si falla (ticker inválido, sin red, etc.):
-        # entonces mostramos un error controlado en lugar de petar.
-        if fig is None:
-            st.error(f"No se pudo obtener el histórico de '{chart_ticker}'.")
-        else:
-            st.plotly_chart(fig, use_container_width=True)
+st.divider()
+st.caption(
+    "⚠️ Información orientativa. Este bot no constituye asesoramiento financiero. "
+    "Todos los datos de mercado proceden de Yahoo Finance."
+)

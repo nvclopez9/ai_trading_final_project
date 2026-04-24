@@ -42,7 +42,7 @@ def price_history_chart(ticker: str, period: str = "6mo"):
             title=f"Precio histórico de {symbol} ({period})",
             xaxis_title="Fecha",
             yaxis_title="Precio",
-            template="plotly_white",
+            template="plotly_dark",
             height=450,
         )
         return fig
@@ -68,7 +68,7 @@ def portfolio_allocation_pie(positions: list[dict]):
         fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.35)])
         fig.update_layout(
             title="Asignación de la cartera (valor de mercado)",
-            template="plotly_white",
+            template="plotly_dark",
             height=400,
         )
         return fig
@@ -96,7 +96,7 @@ def portfolio_pnl_bar(positions: list[dict]):
             title="P&L por posición",
             xaxis_title="Ticker",
             yaxis_title="P&L",
-            template="plotly_white",
+            template="plotly_dark",
             height=400,
         )
         return fig

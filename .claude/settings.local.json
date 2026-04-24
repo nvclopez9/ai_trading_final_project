@@ -51,7 +51,21 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8501/_stcore/health)",
       "Bash(curl -s http://localhost:8501/ -o /dev/null -w \"status=%{http_code}\\\\n\")",
       "Bash(start \"\" \"http://localhost:8501\")",
-      "Bash(cmd.exe /c start \"\" \"http://localhost:8501\")"
+      "Bash(cmd.exe /c start \"\" \"http://localhost:8501\")",
+      "Bash(.venv/Scripts/python.exe -m py_compile app.py src/ui/help_view.py src/ui/news_view.py src/tools/market_tools.py src/agent/agent_builder.py src/agent/prompts.py)",
+      "Bash(curl *)",
+      "Bash(.venv/Scripts/python.exe -m py_compile app.py pages/1_Chat.py pages/2_Mercado.py pages/3_Cartera.py pages/4_Hot.py pages/5_Ayuda.py src/agent/singleton.py src/ui/components/__init__.py)",
+      "Bash(taskkill //F //FI \"WINDOWTITLE eq streamlit*\" //FI \"IMAGENAME eq python.exe\")",
+      "Bash(powershell.exe -Command 'Get-NetTCPConnection -LocalPort 8501 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }')",
+      "Bash(.venv/Scripts/python.exe -m py_compile app.py pages/1_Chat.py pages/2_Mercado.py pages/3_Cartera.py pages/4_Hot.py pages/5_Ayuda.py src/agent/agent_builder.py src/agent/singleton.py src/agent/prompts.py src/services/portfolio.py src/services/db.py src/tools/market_tools.py src/tools/portfolio_tools.py src/tools/rag_tool.py src/ui/components/__init__.py src/ui/charts.py src/ui/portfolio_view.py src/ui/news_view.py src/ui/help_view.py src/rag/ingest.py)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -v)",
+      "Bash(.venv/Scripts/python.exe -m py_compile pages/2_Mercado.py src/ui/portfolio_view.py src/ui/charts.py tests/test_tools.py)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/)",
+      "Bash(.venv/Scripts/python.exe -m py_compile app.py src/services/db.py src/services/portfolio.py src/services/portfolios.py src/tools/portfolio_tools.py src/agent/agent_builder.py src/agent/prompts.py src/ui/portfolio_view.py src/ui/help_view.py pages/0_Carteras.py pages/2_Mercado.py pages/3_Cartera.py pages/6_News.py tests/test_tools.py)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -x --tb=short)",
+      "Bash(.venv/Scripts/python.exe -c \"from src.services.db import init_db; init_db\\(\\); print\\('migration OK'\\)\")",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); free=[m for m in d.get\\('data',[]\\) if ':free' in m.get\\('id',''\\)]; tools=[m for m in free if 'tools' in \\(m.get\\('supported_parameters'\\) or []\\)]; [print\\(m['id']\\) for m in tools[:30]]\")",
+      "Bash(\"/c/Users/nvclo/Desktop/proyecto IA/.venv/Scripts/python.exe\" -m pip install \"langchain-openai>=0.2,<0.4\")"
     ]
   }
 }
