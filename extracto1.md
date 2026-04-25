@@ -239,3 +239,21 @@ Se compró 76 acciones de TQQQ a $62.56 cada una, usando ~45 % del efectivo li
 La idea es aprovechar la alta volatilidad y el impulso alcista del Nasdaq‑100 para obtener una ganancia potencial mayor que la de un ETF tradicional en el mismo período.
 Se mantiene un colchón de efectivo para cubrir posibles pérdidas o para nuevas oportunidades.
 Si quieres profundizar en los riesgos específicos de los ETFs apalancados o explorar otras opciones, avísame.
+
+
+2026-04-25T16:31:13+00:00	SOFI	BUY	62	18.44
+2026-04-25T16:31:08+00:00	AMZN	BUY	4	263.99
+2026-04-25T16:31:01+00:00	PLUG	BUY	369	3.14
+2026-04-25T16:30:57+00:00	TSLA	BUY	3	376.3
+2026-04-25T16:30:55+00:00	NVDA	BUY	5	208.27
+2026-04-25T16:28:31+00:00	U	BUY	34	26.01
+2026-04-25T16:28:30+00:00	QCOM	BUY	6	148.85
+2026-04-25T16:28:28+00:00	AMD	BUY	2	347.81
+2026-04-25T16:28:25+00:00	AAOI	BUY	5	162.17
+2026-04-25T16:28:23+00:00	INTC	BUY	11	82.54
+
+
+2026-04-25T16:40:18+00:00	TQQQ	BUY	76	62.56
+2026-04-25T16:39:47+00:00	TQQQ	BUY	76	62.56
+2026-04-25T16:39:42+00:00	TQQQ	BUY	100	62.56
+2026-04-25T16:38:37+00:00	IBIT	BUY	10	44.02
