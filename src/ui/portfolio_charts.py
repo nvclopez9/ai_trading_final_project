@@ -30,7 +30,7 @@ import yfinance as yf
 from src.services import portfolio as portfolio_svc  # noqa: F401  (uso futuro)
 from src.services import portfolios as portfolios_svc
 from src.services.db import get_conn
-from src.ui.components import COLOR_DOWN, COLOR_NEUTRAL, COLOR_UP, fmt_money, fmt_pct
+from src.ui.components import COLOR_ACCENT, COLOR_DOWN, COLOR_NEUTRAL, COLOR_UP, fmt_money, fmt_pct
 
 
 # Timelines soportados y su mapeo a periodos / intervalos de yfinance.
@@ -211,7 +211,7 @@ def _build_holdings_timeline(
 
 
 def compute_portfolio_value_series(
-    portfolio_id: int, timeline: str = "1M"
+    portfolio_id: int, timeline: str = "1M", benchmark: str | None = None,
 ) -> pd.DataFrame:
     """Calcula la serie temporal del patrimonio total de la cartera.
 
@@ -221,6 +221,9 @@ def compute_portfolio_value_series(
       - ``cash``: cash disponible a esa fecha.
       - ``positions_value``: solo el valor de las posiciones.
       - ``pnl``: total_value - initial_cash (P&L absoluto desde el inicio).
+      - ``benchmark_value`` (opcional): valor simulado de invertir el initial_cash
+        en el ticker de benchmark al inicio del periodo, mantenido hasta el final.
+        Permite comparar visualmente alpha vs SPY/QQQ.
 
     Si no hay transacciones todavía, devuelve DataFrame vacío.
     Si yfinance falla para todos los tickers, devuelve DataFrame vacío.
@@ -267,13 +270,34 @@ def compute_portfolio_value_series(
             "pnl": pnl,
         }
     )
+
+    # Benchmark simulado: si el usuario hubiera puesto initial_cash en SPY/QQQ
+    # al primer timestamp y mantenido hasta cada timestamp posterior, ¿cuánto
+    # tendría? -> initial_cash * (precio_t / precio_t0).
+    if benchmark:
+        try:
+            bench_closes = _download_closes([benchmark], period, start, interval)
+            if not bench_closes.empty and benchmark in bench_closes.columns:
+                bs = bench_closes[benchmark].ffill()
+                # Alineamos con el índice de la serie principal.
+                bs = bs.reindex(df.index, method="ffill")
+                base = float(bs.iloc[0]) if len(bs) and bs.iloc[0] else None
+                if base:
+                    df["benchmark_value"] = initial_cash * (bs / base)
+                    df["benchmark_ticker"] = benchmark
+        except Exception:
+            # Cualquier fallo del benchmark no debe romper la serie principal.
+            pass
+
     return df.dropna(how="all")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _compute_series_cached(portfolio_id: int, timeline: str) -> pd.DataFrame:
-    """Versión cacheada (5 min) de la serie. El cache key es (pid, timeline)."""
-    return compute_portfolio_value_series(portfolio_id, timeline)
+def _compute_series_cached(
+    portfolio_id: int, timeline: str, benchmark: str | None = None,
+) -> pd.DataFrame:
+    """Versión cacheada (5 min) de la serie. El cache key es (pid, timeline, benchmark)."""
+    return compute_portfolio_value_series(portfolio_id, timeline, benchmark=benchmark)
 
 
 def build_portfolio_pnl_figure(df: pd.DataFrame, currency: str = "USD") -> go.Figure:
@@ -308,6 +332,18 @@ def build_portfolio_pnl_figure(df: pd.DataFrame, currency: str = "USD") -> go.Fi
                 name="Coste base (capital invertido)",
                 line=dict(color=COLOR_NEUTRAL, width=1.5, dash="dot"),
                 hovertemplate="%{x|%Y-%m-%d}<br>Coste base: %{y:,.2f}<extra></extra>",
+            )
+        )
+    if "benchmark_value" in df.columns:
+        bench_label = df.get("benchmark_ticker", pd.Series(["Benchmark"])).iloc[0]
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df["benchmark_value"],
+                mode="lines",
+                name=f"Benchmark {bench_label}",
+                line=dict(color=COLOR_ACCENT, width=1.8, dash="dash"),
+                hovertemplate=f"%{{x|%Y-%m-%d}}<br>{bench_label}: %{{y:,.2f}}<extra></extra>",
             )
         )
     fig.update_layout(
@@ -384,6 +420,18 @@ def render_portfolio_pnl_chart(portfolio_id: int) -> None:
     if not timeline:
         timeline = default_tl
 
+    # Selector de benchmark: simula invertir el initial_cash en SPY/QQQ y
+    # superpone esa línea para comparar alpha (mi cartera vs índice).
+    bench_options = ["Ninguno", "SPY", "QQQ"]
+    bench_choice = st.selectbox(
+        "Benchmark (línea comparativa)",
+        options=bench_options,
+        index=0,
+        key=f"pnl_bench_pid_{pid}",
+        help="Compara tu cartera con el ETF índice elegido (mismo capital inicial).",
+    )
+    benchmark = None if bench_choice == "Ninguno" else bench_choice
+
     # Edge case 1: cartera sin transacciones todavía.
     txs = _get_transactions(pid)
     if not txs:
@@ -392,7 +440,7 @@ def render_portfolio_pnl_chart(portfolio_id: int) -> None:
 
     with st.spinner(f"Calculando evolución ({timeline})..."):
         try:
-            df = _compute_series_cached(pid, timeline)
+            df = _compute_series_cached(pid, timeline, benchmark)
         except Exception as e:
             st.warning(f"No se pudo calcular la evolución del patrimonio: {e}")
             return
@@ -405,18 +453,35 @@ def render_portfolio_pnl_chart(portfolio_id: int) -> None:
         )
         return
 
-    # Métricas resumen alineadas en 4 columnas (didáctico de un vistazo).
+    # Métricas resumen alineadas en columnas (didáctico de un vistazo).
+    # Si hay benchmark, añadimos una métrica extra con alpha (return_cartera -
+    # return_benchmark): positivo = ganamos al índice, negativo = nos gana.
     m = _summary_metrics(df)
     if m:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Valor inicial", fmt_money(m["start_val"], currency))
-        c2.metric(
+        has_bench = "benchmark_value" in df.columns
+        cols = st.columns(5 if has_bench else 4)
+        cols[0].metric("Valor inicial", fmt_money(m["start_val"], currency))
+        cols[1].metric(
             "Valor final",
             fmt_money(m["end_val"], currency),
             delta=fmt_pct(m["delta_pct"]),
         )
-        c3.metric("P&L del periodo", fmt_money(m["delta"], currency))
-        c4.metric("Max drawdown", fmt_pct(m["max_dd"], with_sign=False))
+        cols[2].metric("P&L del periodo", fmt_money(m["delta"], currency))
+        cols[3].metric("Max drawdown", fmt_pct(m["max_dd"], with_sign=False))
+        if has_bench:
+            try:
+                bv0 = float(df["benchmark_value"].iloc[0])
+                bv1 = float(df["benchmark_value"].iloc[-1])
+                bench_pct = ((bv1 - bv0) / bv0 * 100.0) if bv0 else 0.0
+                alpha_pct = m["delta_pct"] - bench_pct
+                cols[4].metric(
+                    "Alpha vs " + (benchmark or "?"),
+                    fmt_pct(alpha_pct),
+                    help="Diferencia entre el % ganado por tu cartera y el % del índice. "
+                         "Positivo = bates al mercado.",
+                )
+            except Exception:
+                pass
 
     fig = build_portfolio_pnl_figure(df, currency=currency)
     st.plotly_chart(fig, use_container_width=True)

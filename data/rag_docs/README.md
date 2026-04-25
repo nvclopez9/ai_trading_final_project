@@ -18,8 +18,16 @@ Esta carpeta contiene el corpus de educación financiera que el agente usa para 
 | `cnmv_fiscalidad_fondos_irpf.pdf` | CNMV | Fiscalidad de los fondos de inversión en el IRPF (España). | <https://www.cnmv.es/docportal/publicaciones/guias/guia_fiscalidad_fondos_de_inversion.pdf> |
 | `sec_saving_and_investing_roadmap.pdf` | SEC / Investor.gov | "Saving and Investing — A Roadmap to Your Financial Security" (conceptos básicos, planificación). | <https://www.investor.gov/sites/investorgov/files/2019-02/Saving-and-Investing.pdf> |
 | `sec_mutual_funds_and_etfs.pdf` | SEC / Investor.gov | "Mutual Funds and ETFs — A Guide for Investors" (fondos, ETFs, comisiones, clases). | <https://www.investor.gov/sites/investorgov/files/2019-02/mutual-funds-ETFs.pdf> |
+| `etfs_sec_investor_bulletin.pdf` | SEC / Investor.gov | Investor Bulletin: Exchange-Traded Funds (ETFs) — estructura, NAV/IIV, arbitraje, tipos. | <https://www.sec.gov/investor/alerts/etfs.pdf> |
+| `etfs_cnmv_fondos_cotizados.pdf` | CNMV | Guía CNMV "Los Fondos Cotizados en Bolsa (ETF)" — tipos, riesgos, fiscalidad, ETF inversos y apalancados. | <https://www.cnmv.es/DocPortal/Publicaciones/Guias/G07_ETF.pdf> |
+| `etfs_cnmv_monografia_fondos_cotizados.pdf` | CNMV | Monografía DT55 "Fondos cotizados: características y desarrollos recientes". | <https://www.cnmv.es/DocPortal/Publicaciones/MONOGRAFIAS/DT55_web.pdf> |
+| `leveraged_etps_sec_iac_recommendation.pdf` | SEC Investor Advisory Committee | Recomendación sobre Single-Stock ETFs y Leveraged ETFs (riesgos del rebalanceo diario, decay, no holdables a largo plazo). | <https://www.sec.gov/files/spotlight/iac/20230622-recommendation-single-stock-etfs-and-leveraged-etfs.pdf> |
+| `leveraged_etps_sec_dera_economics.pdf` | SEC DERA | Economics Note: The Distribution of Leveraged ETF Returns (análisis cuantitativo del decay). | <https://www.sec.gov/files/dera_letf_economics_note_nov2019.pdf> |
+| `commodities_cftc_before_investing_pools.pdf` | CFTC | "Before Investing in Commodity Pools" — pools de materias primas, registro CPO/CTA, disclosures, riesgos. | <https://www.cftc.gov/sites/default/files/2020-09/Before_Investing_in_Commodity_Pools%20V508%2003102020.pdf> |
+| `crypto_etps_cftc_bitcoin_futures_etf.pdf` | CFTC | "What is a Bitcoin Futures ETF?" — diferencia spot vs futuros, contango, roll premium, commodity pool. | <https://www.cftc.gov/sites/default/files/2022-02/BitcoinETF.pdf> |
+| `crypto_etps_esma_warning.pdf` | ESMA | Warning on Crypto-Assets (Dec 2024) — riesgos, MiCA, custodia, ausencia de fondo de garantía. | <https://www.esma.europa.eu/sites/default/files/2024-12/ESMA35-1872330276-1971_Warning_on_crypto-assets.pdf> |
 
-Los PDFs de la CNMV están en **español**; los de la SEC en **inglés**. El RAG mezcla ambos idiomas sin problema porque el embedding `nomic-embed-text` es multilingüe.
+Los PDFs de la CNMV están en **español**; los de la SEC, CFTC y ESMA en **inglés**. El RAG mezcla ambos idiomas sin problema porque el embedding `nomic-embed-text` es multilingüe.
 
 ## Cobertura temática
 
@@ -31,6 +39,10 @@ Los PDFs de la CNMV están en **español**; los de la SEC en **inglés**. El RAG
 - **Psicología del inversor / sesgos**: CNMV Psicología económica para inversores.
 - **Fiscalidad España**: CNMV Fiscalidad acciones + Fiscalidad fondos.
 - **Planificación y estrategia**: SEC Saving and Investing Roadmap.
+- **ETFs (estructura y tipos)**: SEC Investor Bulletin ETFs + CNMV Fondos Cotizados + CNMV Monografía DT55.
+- **ETPs apalancados / inversos**: SEC IAC Recommendation + SEC DERA Economics Note + CNMV Fondos Cotizados (sección ETF apalancados).
+- **Commodities y commodity pools**: CFTC Before Investing in Commodity Pools.
+- **Crypto-ETPs (spot vs futuros)**: CFTC Bitcoin Futures ETF + ESMA Warning on Crypto-Assets.
 
 ## Añadir más documentos (opcional)
 

@@ -21,6 +21,8 @@ Notas didácticas:
 import streamlit as st
 
 from src.agent.singleton import get_agent, ensure_session_id
+from src.services import portfolios as pf_svc
+from src.tools.portfolio_tools import set_active_portfolio
 from src.ui.chat_suggestions import render_suggestions_panel
 
 st.set_page_config(page_title="Chat · Bot de Inversiones", page_icon="💬")
@@ -28,6 +30,55 @@ st.title("💬 Chat con el agente")
 
 agent = get_agent()
 session_id = ensure_session_id()
+
+
+# -----------------------------------------------------------------------------
+# Selector de cartera activa con CHIPS (no chat). El usuario puede cambiar
+# de cartera sin salir del chat: las próximas tools (portfolio_buy, etc.)
+# operarán sobre la cartera marcada aquí.
+# -----------------------------------------------------------------------------
+def _render_portfolio_chips() -> None:
+    """Pinta una fila de chips/botones, uno por cartera. Resalta la activa."""
+    try:
+        portfolios_list = pf_svc.list_portfolios()
+    except Exception:
+        portfolios_list = []
+    if not portfolios_list:
+        return
+
+    ids = [p["id"] for p in portfolios_list]
+    current = st.session_state.get("active_portfolio_id", ids[0])
+    if current not in ids:
+        current = ids[0]
+        st.session_state["active_portfolio_id"] = current
+    set_active_portfolio(current)
+
+    st.caption("Cartera activa")
+    # Una columna por cartera, con un máximo razonable por fila para no romper
+    # el layout si el usuario tiene muchas carteras.
+    n = len(portfolios_list)
+    per_row = min(n, 5)
+    cols = st.columns(per_row)
+    for idx, p in enumerate(portfolios_list):
+        col = cols[idx % per_row]
+        is_active = p["id"] == current
+        # Chip activo se renderiza como botón primary; los demás secondary.
+        label = f"{'✅ ' if is_active else ''}#{p['id']} · {p['name']}"
+        if col.button(
+            label,
+            key=f"chat_portfolio_chip_{p['id']}",
+            type="primary" if is_active else "secondary",
+            use_container_width=True,
+            help=f"Riesgo: {p['risk']} · Mercados: {p['markets']}",
+        ):
+            if not is_active:
+                st.session_state["active_portfolio_id"] = p["id"]
+                set_active_portfolio(p["id"])
+                st.toast(f"Cartera activa: {p['name']}", icon="🧺")
+                st.rerun()
+
+
+_render_portfolio_chips()
 
 # Historial visual del chat (independiente de la memoria interna del agente,
 # que vive en RunnableWithMessageHistory indexada por session_id).

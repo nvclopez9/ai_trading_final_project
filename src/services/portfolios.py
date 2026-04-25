@@ -118,7 +118,7 @@ def get_portfolio_by_name(name: str) -> dict | None:
 
 
 def delete_portfolio(portfolio_id: int) -> None:
-    """Borra una cartera y en cascada sus posiciones y transacciones.
+    """Borra una cartera y en cascada sus posiciones, transacciones y watchlist.
 
     No permite borrar la cartera 1 (Default) — es un safeguard mínimo para
     que la app siempre tenga al menos una cartera seed disponible.
@@ -130,7 +130,36 @@ def delete_portfolio(portfolio_id: int) -> None:
         cur = conn.cursor()
         cur.execute("DELETE FROM transactions WHERE portfolio_id = ?", (pid,))
         cur.execute("DELETE FROM positions WHERE portfolio_id = ?", (pid,))
+        # watchlist puede no existir en BBDD antiguas; ignoramos si falla.
+        try:
+            cur.execute("DELETE FROM watchlist WHERE portfolio_id = ?", (pid,))
+        except Exception:
+            pass
         cur.execute("DELETE FROM portfolios WHERE id = ?", (pid,))
+        conn.commit()
+
+
+def reset_portfolio(portfolio_id: int) -> None:
+    """Resetea una cartera a su estado inicial: borra posiciones, transacciones
+    y watchlist, pero MANTIENE la cartera (con su initial_cash, riesgo y
+    mercados intactos). Aplica también a la Default (id=1), que no se puede
+    eliminar pero sí reiniciar.
+
+    Tras llamar a esta función, ``cash_available(portfolio_id)`` volverá a ser
+    ``initial_cash`` (porque al no haber transacciones, no hay buys/sells).
+    """
+    pid = int(portfolio_id)
+    p = get_portfolio(pid)
+    if p is None:
+        raise ValueError(f"Cartera {pid} no existe.")
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM transactions WHERE portfolio_id = ?", (pid,))
+        cur.execute("DELETE FROM positions WHERE portfolio_id = ?", (pid,))
+        try:
+            cur.execute("DELETE FROM watchlist WHERE portfolio_id = ?", (pid,))
+        except Exception:
+            pass
         conn.commit()
 
 

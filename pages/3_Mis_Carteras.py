@@ -82,34 +82,65 @@ st.caption(
 if active.get("notes"):
     st.caption(f"📝 {active['notes']}")
 
-# Botón eliminar (excepto Default id=1).
-if active["id"] != 1:
-    del_key = f"confirm_delete_{active['id']}"
-    if st.session_state.get(del_key):
-        st.warning(
-            f"¿Seguro que quieres eliminar **{active['name']}**? "
-            "Se borrarán sus posiciones y transacciones."
-        )
-        cdel1, cdel2 = st.columns(2)
-        if cdel1.button("Sí, eliminar", type="primary", key="do_delete"):
-            try:
-                pf_svc.delete_portfolio(active["id"])
-                st.session_state[del_key] = False
-                st.session_state["active_portfolio_id"] = 1
-                set_active_portfolio(1)
-                st.toast("Cartera eliminada.", icon="🗑️")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
-        if cdel2.button("Cancelar", key="cancel_delete"):
-            st.session_state[del_key] = False
+# Acciones destructivas: Reiniciar (todas) + Eliminar (excepto Default).
+# Patrón uniforme con confirmación de dos pasos para evitar clicks accidentales.
+reset_key = f"confirm_reset_{active['id']}"
+del_key = f"confirm_delete_{active['id']}"
+
+if st.session_state.get(reset_key):
+    st.warning(
+        f"¿Seguro que quieres **reiniciar {active['name']}**? Se borrarán "
+        "todas sus posiciones, transacciones y watchlist. La cartera "
+        f"vuelve a {fmt_money(active['initial_cash'], active['currency'])} de cash. "
+        "Riesgo y mercados se mantienen."
+    )
+    crst1, crst2 = st.columns(2)
+    if crst1.button("Sí, reiniciar", type="primary", key="do_reset"):
+        try:
+            pf_svc.reset_portfolio(active["id"])
+            st.session_state[reset_key] = False
+            st.toast("Cartera reiniciada.", icon="🔄")
             st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+    if crst2.button("Cancelar", key="cancel_reset"):
+        st.session_state[reset_key] = False
+        st.rerun()
+elif st.session_state.get(del_key):
+    st.warning(
+        f"¿Seguro que quieres **eliminar {active['name']}**? "
+        "Se borrarán sus posiciones, transacciones y watchlist."
+    )
+    cdel1, cdel2 = st.columns(2)
+    if cdel1.button("Sí, eliminar", type="primary", key="do_delete"):
+        try:
+            pf_svc.delete_portfolio(active["id"])
+            st.session_state[del_key] = False
+            st.session_state["active_portfolio_id"] = 1
+            set_active_portfolio(1)
+            st.toast("Cartera eliminada.", icon="🗑️")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+    if cdel2.button("Cancelar", key="cancel_delete"):
+        st.session_state[del_key] = False
+        st.rerun()
+else:
+    # Estado normal: dos botones lado-a-lado. La Default (id=1) NO muestra eliminar.
+    if active["id"] == 1:
+        ca1, _ca2 = st.columns([1, 3])
+        if ca1.button("🔄 Reiniciar cartera", key=f"btn_reset_{active['id']}"):
+            st.session_state[reset_key] = True
+            st.rerun()
+        st.caption("La cartera Default (id=1) puede reiniciarse pero no eliminarse.")
     else:
-        if st.button("🗑️ Eliminar cartera", key=f"btn_delete_{active['id']}"):
+        ca1, ca2, _ca3 = st.columns([1, 1, 2])
+        if ca1.button("🔄 Reiniciar cartera", key=f"btn_reset_{active['id']}"):
+            st.session_state[reset_key] = True
+            st.rerun()
+        if ca2.button("🗑️ Eliminar cartera", key=f"btn_delete_{active['id']}"):
             st.session_state[del_key] = True
             st.rerun()
-else:
-    st.caption("La cartera Default (id=1) no puede eliminarse.")
 
 st.divider()
 

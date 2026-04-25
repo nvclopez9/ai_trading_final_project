@@ -120,6 +120,21 @@ def init_db() -> None:
                 except sqlite3.OperationalError:
                     pass
 
+        # Watchlist: tickers en seguimiento (no posición) por cartera.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                portfolio_id INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                note TEXT,
+                added_at TEXT NOT NULL,
+                UNIQUE(portfolio_id, ticker),
+                FOREIGN KEY (portfolio_id) REFERENCES portfolios(id) ON DELETE CASCADE
+            )
+            """
+        )
+
         # Seed: si no hay ninguna cartera, creamos la Default con id=1.
         cur.execute("SELECT COUNT(*) AS n FROM portfolios")
         n = cur.fetchone()["n"]

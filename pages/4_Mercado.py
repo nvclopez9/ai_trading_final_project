@@ -153,10 +153,16 @@ if fig is None:
 else:
     st.plotly_chart(fig, use_container_width=True)
 
-# Tabs ampliadas: Stats, News, Explícame, Comparar, Análisis, Comprar.
-tab_stats, tab_news, tab_explain, tab_compare, tab_analyze, tab_trade = st.tabs(
-    ["📊 Estadísticas", "📰 Noticias", "💡 Explícame", "📈 Comparar", "🧠 Análisis", "⭐ Añadir a cartera"]
-)
+# Tabs ampliadas: Stats, News, Explícame, Comparar, Análisis, Comprar,
+# Fundamentales (ratios estructurados), Comparador (tabla métrica multi-ticker).
+(
+    tab_stats, tab_news, tab_explain, tab_compare, tab_analyze, tab_trade,
+    tab_fund, tab_cmpx,
+) = st.tabs([
+    "📊 Estadísticas", "📰 Noticias", "💡 Explícame",
+    "📈 Comparar", "🧠 Análisis", "⭐ Añadir a cartera",
+    "📑 Fundamentales", "🔍 Comparador",
+])
 
 with tab_stats:
     c1, c2, c3, c4 = st.columns(4)
@@ -301,3 +307,73 @@ with tab_trade:
                 st.error(f"❌ {e}")
             except Exception as e:
                 st.error(f"❌ Error inesperado: {e}")
+
+
+# -----------------------------------------------------------------------------
+# 📑 Fundamentales — ratios estructurados del ticker actual
+# -----------------------------------------------------------------------------
+from src.tools.analysis_tools import compare_tickers as _compare_tool, get_fundamentals as _fund_tool
+
+with tab_fund:
+    st.subheader(f"Fundamentales · {ticker}")
+    st.caption("Ratios oficiales de Yahoo Finance agrupados por bloque temático.")
+    if st.button("Cargar fundamentales", key="fund_load_btn", type="primary"):
+        with st.spinner("Consultando ratios..."):
+            txt = _fund_tool.invoke({"ticker": ticker})
+        st.session_state[f"fund_text_{ticker}"] = txt
+    cached_fund = st.session_state.get(f"fund_text_{ticker}")
+    if cached_fund:
+        st.code(cached_fund, language="text")
+    else:
+        st.info("Pulsa **Cargar fundamentales** para ver P/E, ROE, márgenes, debt/equity, etc.")
+
+
+# -----------------------------------------------------------------------------
+# 🔍 Comparador multi-ticker — tabla con métricas
+# -----------------------------------------------------------------------------
+with tab_cmpx:
+    st.subheader("Comparador multi-ticker")
+    st.caption("Compara hasta 6 tickers lado-a-lado: precio, P/E, market cap, dividendo, beta, YTD.")
+    raw = st.text_input(
+        "Tickers (separados por coma)",
+        value=f"{ticker}, MSFT, NVDA",
+        key="cmpx_input",
+        help="Hasta 6 símbolos. Ejemplo: AAPL, MSFT, NVDA, GOOGL",
+    )
+    if st.button("Comparar", key="cmpx_btn", type="primary"):
+        symbols = [s.strip().upper() for s in raw.split(",") if s.strip()]
+        if len(symbols) < 2 or len(symbols) > 6:
+            st.warning("Pasa entre 2 y 6 tickers.")
+        else:
+            with st.spinner("Recogiendo métricas..."):
+                txt = _compare_tool.invoke({"tickers": symbols})
+            st.session_state["cmpx_last_text"] = txt
+            st.session_state["cmpx_last_symbols"] = symbols
+
+    if st.session_state.get("cmpx_last_text"):
+        st.code(st.session_state["cmpx_last_text"], language="text")
+
+        # Gráfico de performance relativa normalizada (base 100 a 6 meses).
+        symbols = st.session_state.get("cmpx_last_symbols") or []
+        if symbols:
+            try:
+                with st.spinner("Cargando histórico..."):
+                    hist_data = {}
+                    for s in symbols:
+                        h = yf.Ticker(s).history(period="6mo")
+                        if not h.empty:
+                            base = float(h["Close"].iloc[0])
+                            hist_data[s] = (h.index, [float(c) / base * 100 for c in h["Close"]])
+                if hist_data:
+                    fig = go.Figure()
+                    for sym, (idx, vals) in hist_data.items():
+                        fig.add_trace(go.Scatter(x=idx, y=vals, mode="lines", name=sym))
+                    fig.update_layout(
+                        template="plotly_dark",
+                        title="Performance relativa (base 100, últimos 6 meses)",
+                        yaxis_title="Índice (base 100)",
+                        height=380,
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.warning(f"No pude cargar el gráfico de performance relativa: {e}")

@@ -19,16 +19,26 @@ import yfinance as yf
 # agente. Usa el docstring como descripción que lee el LLM para decidir.
 from langchain_core.tools import tool
 
+# Universos curados (acciones por tier + ETFs + commodities + crypto). Vivimos
+# en un único módulo `universes.py` para que advisor_tool y otras partes de
+# la app compartan las mismas listas y la mantenibilidad sea sencilla.
+from src.tools.universes import (
+    LARGE_CAP,
+    MID_CAP,
+    ETFS,
+    ETPS_COMMODITIES,
+    ETPS_CRYPTO,
+)
 
-# Universo de fallback: 30 componentes relevantes del S&P500. Se usa cuando
-# el Screener oficial de yfinance falla (estructura cambia, rate-limit, etc.).
-# Son pocos para que el bucle serie no tarde minutos; representan sectores
-# diversos para que "gainers/losers/actives" den resultados razonables.
-FALLBACK_UNIVERSE = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "BRK-B", "JPM", "V",
-    "WMT", "XOM", "UNH", "JNJ", "PG", "MA", "HD", "CVX", "LLY", "ABBV",
-    "AVGO", "KO", "PEP", "COST", "MRK", "ORCL", "ADBE", "CSCO", "NKE", "DIS",
-]
+
+# Universo de fallback: combinación de large+mid caps + ETFs + commodities +
+# crypto-ETPs. Se usa cuando el Screener oficial de yfinance falla
+# (estructura cambia, rate-limit, etc.). Es lo bastante variado para que
+# "gainers/losers/actives" den resultados representativos en distintos
+# segmentos del mercado.
+FALLBACK_UNIVERSE = (
+    LARGE_CAP + MID_CAP + ETFS + ETPS_COMMODITIES + ETPS_CRYPTO
+)
 
 
 @tool

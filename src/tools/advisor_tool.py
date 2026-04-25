@@ -22,10 +22,13 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
+import yfinance as yf
+
 from src.services import portfolio
 from src.services import portfolios
 from src.tools.market_tools import _fetch_fallback_quotes
 from src.tools.portfolio_tools import get_active_portfolio_id
+from src.tools.universes import get_universe
 
 
 # Mapeo perfil de riesgo -> número de picks y peso de momentum vs estabilidad.
@@ -70,12 +73,77 @@ def _patrimony(portfolio_id: int) -> tuple[float, float, float]:
     return cash, invested, cash + invested
 
 
+# Umbrales convencionales en USD para clasificación por marketCap.
+_TIER_BOUNDS = {
+    "small": (0, 2_000_000_000),
+    "mid":   (2_000_000_000, 10_000_000_000),
+    "large": (10_000_000_000, float("inf")),
+}
+
+
+def _fetch_quotes_for(symbols: list[str]) -> list[dict]:
+    """Réplica parametrizada de ``_fetch_fallback_quotes`` para una lista
+    arbitraria. Devuelve dicts con ticker/price/change_pct/volume/market_cap.
+
+    Iteración serie: con 30-50 tickers tarda 30-90s pero es código simple
+    y consistente con el patrón del resto del proyecto.
+    """
+    rows: list[dict] = []
+    for sym in symbols:
+        try:
+            t = yf.Ticker(sym)
+            info = t.info or {}
+            price = info.get("regularMarketPrice") or info.get("currentPrice")
+            prev = info.get("regularMarketPreviousClose") or info.get("previousClose")
+            if price is None or prev is None:
+                hist = t.history(period="5d")
+                if hist.empty or len(hist) < 2:
+                    continue
+                price = float(hist["Close"].iloc[-1])
+                prev = float(hist["Close"].iloc[-2])
+            change_pct = (float(price) - float(prev)) / float(prev) * 100 if prev else 0.0
+            volume = info.get("regularMarketVolume") or info.get("volume") or 0
+            mcap = info.get("marketCap")
+            rows.append({
+                "ticker": sym,
+                "price": float(price),
+                "change_pct": float(change_pct),
+                "volume": int(volume) if volume else 0,
+                "market_cap": float(mcap) if isinstance(mcap, (int, float)) else None,
+            })
+        except Exception:
+            continue
+    return rows
+
+
+def _filter_by_tier(rows: list[dict], tier: str) -> list[dict]:
+    """Filtra por rango de market_cap según tier. Si el ticker no tiene
+    market_cap conocido (ETFs, ETPs, commodities), pasa el filtro siempre
+    para no excluirlo (su universo curado ya implica una clasificación).
+    """
+    bounds = _TIER_BOUNDS.get(tier.lower())
+    if not bounds:
+        return rows
+    lo, hi = bounds
+    out = []
+    for r in rows:
+        mc = r.get("market_cap")
+        if mc is None:
+            out.append(r)  # ETFs/ETPs no se filtran por marketCap.
+            continue
+        if lo <= mc < hi:
+            out.append(r)
+    return out
+
+
 @tool
 def analyze_buy_opportunities(
     pct_of_patrimony: float | None = None,
     amount_usd: float | None = None,
     horizon: str = "short",
     num_picks: int | None = None,
+    market_cap_tier: str = "any",
+    asset_class: str = "stock",
 ) -> str:
     """Análisis automatizado para sugerir COMPRAS basadas en la cartera activa,
     el snapshot del mercado y el perfil de riesgo de la cartera.
@@ -88,6 +156,12 @@ def analyze_buy_opportunities(
       prioriza estabilidad y liquidez). Default 'short'.
     - num_picks: número de tickers entre los que repartir. Si None, se decide
       según el riesgo de la cartera (conservador 3, moderado 4, agresivo 5).
+    - market_cap_tier: 'small' (<$2B), 'mid' ($2-10B), 'large' (>$10B), 'any' (todos).
+      Solo aplica a acciones; con asset_class != 'stock' el universo ya viene definido.
+    - asset_class: 'stock' (default), 'etf' (índices/sectoriales/factor),
+      'commodity' (oro, plata, petróleo, gas...), 'crypto' (BTC/ETH ETPs spot y futuros),
+      'leveraged' (3x apalancados, alto riesgo, NO holdables long-term),
+      'all' (mezcla stocks + etf + commodity + crypto, sin apalancados).
 
     Devuelve un análisis textual con la lógica y un bloque PROPUESTA EJECUTABLE
     con líneas formato 'COMPRAR <qty> <TICKER>' que el agente debe presentar
@@ -138,14 +212,35 @@ def analyze_buy_opportunities(
         picks = int(num_picks) if num_picks else profile["picks"]
         momentum_w = profile["momentum_weight"]
 
-        # Universo: el snapshot fallback (S&P500 reducido). Suficiente para el MVP
-        # y consistente con el resto de la app.
-        snapshot = _fetch_fallback_quotes()
+        # Universo: derivado de tier + asset_class. El advisor maneja varios
+        # casos de uso: stocks por capitalización, ETFs, commodities, crypto y
+        # apalancados. Si el universo curado es de stocks puros, también
+        # podemos filtrar por marketCap real para depurar (esto puede excluir
+        # algún ticker que cambió de tier desde la última curación).
+        tier = (market_cap_tier or "any").strip().lower()
+        ac = (asset_class or "stock").strip().lower()
+        symbols = get_universe(tier=tier, asset_class=ac)
+        if not symbols:
+            return f"❌ No hay universo para tier='{tier}', asset_class='{ac}'."
+
+        # Si el universo coincide con el fallback (large/any + stock), reusamos el
+        # snapshot ya cacheado por la app; si no, hacemos fetch específico.
+        snapshot = _fetch_quotes_for(symbols)
         if not snapshot:
             return (
                 "❌ No se pudo obtener el snapshot del mercado para analizar candidatos. "
                 "Reintenta en unos segundos."
             )
+
+        # Filtro adicional por marketCap real cuando es relevante (solo stocks
+        # con tier explícito small/mid/large; 'any' no filtra).
+        if ac == "stock" and tier in ("small", "mid", "large"):
+            snapshot = _filter_by_tier(snapshot, tier)
+            if not snapshot:
+                return (
+                    f"❌ No quedan candidatos tras filtrar por tier='{tier}' "
+                    "con datos reales de marketCap. Reintenta o cambia de tier."
+                )
 
         # Evitamos proponer tickers que el usuario ya tenga en la cartera (para
         # diversificar). Si quiere doblar posiciones que use portfolio_buy directo.
@@ -207,16 +302,24 @@ def analyze_buy_opportunities(
         lines = []
         lines.append(f"📊 ANÁLISIS DE OPORTUNIDADES DE COMPRA — cartera '{p['name']}'")
         lines.append(
-            f"Perfil: riesgo={risk}, mercados={p.get('markets')}, horizonte={horizon}."
+            f"Perfil: riesgo={risk}, mercados={p.get('markets')}, horizonte={horizon}, "
+            f"tier={tier}, asset_class={ac}."
         )
         lines.append(
             f"Patrimonio: ${net_worth:,.2f} (cash ${cash:,.2f} + invertido ${invested:,.2f})."
         )
         lines.append(f"Presupuesto a desplegar: ${budget:,.2f} ({budget_basis}).")
+        if ac == "leveraged":
+            lines.append(
+                "⚠️ ATENCIÓN: ETPs apalancados (3x bull/bear, vol). Riesgo elevado por "
+                "decay diario; pensados para trading intra-día / muy corto plazo. "
+                "NO son holdables a largo plazo: pueden perder valor incluso con el "
+                "subyacente plano por el rebalanceo diario."
+            )
         if cash_warning:
             lines.append(cash_warning.strip())
         lines.append("")
-        lines.append("Candidatos rankeados (universo: S&P500 reducido):")
+        lines.append(f"Candidatos rankeados (universo: tier={tier}, asset_class={ac}):")
         header = f"{'Ticker':<8}{'Precio':>10}{'Δ día':>10}{'Qty':>6}{'Coste':>12}"
         lines.append(header)
         lines.append("-" * len(header))

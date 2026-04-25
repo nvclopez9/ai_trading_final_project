@@ -88,6 +88,10 @@ from src.tools.advisor_tool import (
     analyze_buy_opportunities,
     analyze_sell_candidates,
 )
+from src.tools.analysis_tools import (
+    compare_tickers,
+    get_fundamentals,
+)
 
 load_dotenv()
 
@@ -215,6 +219,8 @@ def build_agent() -> RunnableWithMessageHistory:
         portfolio_set_markets,
         analyze_buy_opportunities,
         analyze_sell_candidates,
+        compare_tickers,
+        get_fundamentals,
     ]
 
     # Prompt del agente. Los 4 elementos son obligatorios para el tool-calling:
