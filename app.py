@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import streamlit as st
 
 from src.agent.singleton import get_agent, ensure_session_id
+from src.agent.agent_builder import get_active_llm_info
 from src.services.portfolio import get_positions, get_portfolio_value
 from src.services import portfolios as pf_svc
 from src.tools.portfolio_tools import set_active_portfolio
@@ -44,7 +45,15 @@ if "first_visit" not in st.session_state:
 
 # Cabecera con saludo.
 st.title("🏠 Bot de Inversiones")
-st.caption("Tu asistente conversacional con agente de IA (LangChain + Ollama).")
+st.caption("Tu asistente conversacional con agente de IA (LangChain + Ollama / OpenRouter).")
+
+# Badge del LLM activo. Lee del .env tras el fallback aplicado en _build_llm()
+# para no mentirle al usuario si seleccionó openrouter sin API key.
+_llm_provider, _llm_model = get_active_llm_info()
+_provider_label = {"ollama": "🖥️ Ollama (local)", "openrouter": "☁️ OpenRouter (cloud)"}.get(
+    _llm_provider, _llm_provider
+)
+st.caption(f"🤖 LLM activo: **{_provider_label}** · `{_llm_model}`")
 
 
 # -----------------------------------------------------------------------------
@@ -96,7 +105,7 @@ with left:
     c2.metric("P&L", fmt_money(total_pnl, "USD"), delta=fmt_pct(total_pnl_pct))
     c3.metric("Posiciones", str(len(positions)))
     if st.button("Abrir cartera →"):
-        st.switch_page("pages/3_Cartera.py")
+        st.switch_page("pages/2_Mi_Cartera.py")
 
 with right:
     st.subheader("📌 Top posiciones")
@@ -122,7 +131,7 @@ with right:
                 col_pnl.write("—")
             if col_btn.button("Ver", key=f"home_top_{t}"):
                 st.session_state["active_ticker"] = t
-                st.switch_page("pages/2_Mercado.py")
+                st.switch_page("pages/4_Mercado.py")
 
 st.divider()
 
@@ -170,8 +179,8 @@ if snapshot:
             vol_m = r["volume"] / 1e6 if r["volume"] else 0
             st.markdown(f"{r['ticker']} &nbsp; {vol_m:.1f} M")
 
-    if st.button("Ver más en 🔥 Hot →"):
-        st.switch_page("pages/4_Hot.py")
+    if st.button("Ver más en 🔥 Top del día →"):
+        st.switch_page("pages/5_Top_del_Dia.py")
 else:
     st.info("No pudimos cargar el snapshot del mercado ahora mismo.")
 

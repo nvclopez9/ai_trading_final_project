@@ -87,16 +87,27 @@ def portfolio_sell(ticker: str, qty: float) -> str:
 
 @tool
 def portfolio_view() -> str:
-    """Muestra el estado actual de la cartera ACTIVA: posiciones, precio medio,
-    precio actual, valor de mercado, P&L por posición y totales.
-    Usa esta tool cuando el usuario pregunte por su cartera, posiciones o rentabilidad."""
+    """Muestra el estado actual de la cartera ACTIVA: efectivo disponible,
+    posiciones, precio medio, precio actual, valor de mercado, P&L por
+    posición, valor total invertido y patrimonio total (cash + posiciones).
+    Usa esta tool cuando el usuario pregunte por su cartera, posiciones,
+    rentabilidad, efectivo o patrimonio."""
     try:
         pid = get_active_portfolio_id()
         positions = portfolio.get_positions(portfolio_id=pid)
+        cash = portfolios.cash_available(pid)
         name_suffix = _active_name_suffix()
+
         if not positions:
-            return f"Tu cartera simulada está vacía{name_suffix}."
+            return (
+                f"Cartera simulada{name_suffix} sin posiciones abiertas.\n"
+                f"Efectivo disponible: ${cash:,.2f}\n"
+                f"Patrimonio total: ${cash:,.2f} (todo en efectivo)."
+            )
+
         totals = portfolio.get_portfolio_value(portfolio_id=pid)
+        invested_value = totals["total_value"]
+        net_worth = invested_value + cash
 
         header = (
             f"{'Ticker':<8}{'Qty':>8}{'Avg':>10}{'Actual':>10}"
@@ -114,14 +125,18 @@ def portfolio_view() -> str:
             )
         lines.append("-" * len(header))
         lines.append(
-            f"TOTAL valor: ${totals['total_value']:.2f} | "
-            f"coste: ${totals['total_cost']:.2f} | "
+            f"Valor invertido: ${invested_value:,.2f} | "
+            f"coste: ${totals['total_cost']:,.2f} | "
             f"P&L: {totals['total_pnl']:+.2f} ({totals['total_pnl_pct']:+.2f}%)"
+        )
+        lines.append(
+            f"Efectivo disponible: ${cash:,.2f}  |  "
+            f"PATRIMONIO TOTAL: ${net_worth:,.2f}"
         )
         if totals.get("stale_tickers"):
             lines.append(
                 "Nota: sin precio actual para " + ", ".join(totals["stale_tickers"]) +
-                " (excluidos del total)."
+                " (excluidos del valor invertido)."
             )
         return "\n".join(lines)
     except Exception as e:

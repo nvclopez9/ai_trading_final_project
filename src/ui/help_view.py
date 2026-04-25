@@ -40,7 +40,7 @@ def render_help_tab() -> None:
         with st.expander("🧺 Multi-cartera"):
             st.markdown(
                 "Ahora puedes tener **varias carteras** con perfiles distintos. "
-                "Créalas desde la pestaña 🧺 **Carteras** (nombre, cash inicial, "
+                "Créalas desde la pestaña 🧺 **Mis Carteras** (nombre, cash inicial, "
                 "riesgo y mercados objetivo). Las operaciones del agente se "
                 "ejecutan siempre sobre la cartera **activa**.\n\n"
                 "Interacciones útiles con el agente:\n"
@@ -96,6 +96,27 @@ def render_help_tab() -> None:
         "simuladas y sólo viven en una base de datos local.\n"
         "- **Predecir el futuro**: ningún modelo, ni siquiera el mejor, sabe "
         "si una acción subirá mañana."
+    )
+
+    st.divider()
+
+    st.markdown("### 🤖 Cambiar el LLM (Ollama local ↔ OpenRouter cloud)")
+    st.markdown(
+        "El bot puede funcionar con dos motores intercambiables, configurados "
+        "en el archivo `.env`:\n\n"
+        "- **Ollama (local)** — tu PC ejecuta el modelo. Privado, gratis, sin "
+        "límite de cuota, pero limitado por la RAM/CPU/GPU de la máquina. "
+        "Bueno para empezar y para presentaciones offline.\n"
+        "- **OpenRouter (cloud)** — pasarela a modelos remotos (incluidos "
+        "varios **gratis** como `openai/gpt-oss-20b:free` o "
+        "`meta-llama/llama-3.3-70b-instruct:free`). Más potente y con "
+        "tool-calling fiable. Necesita conexión y una API key gratuita de "
+        "https://openrouter.ai/keys.\n\n"
+        "Para alternar, edita `.env` y reinicia Streamlit:\n"
+        "```\nLLM_PROVIDER=openrouter   # o 'ollama'\n"
+        "OPENROUTER_API_KEY=sk-or-...\n"
+        "OPENROUTER_MODEL=openai/gpt-oss-20b:free\n```\n"
+        "El badge **🤖 LLM activo** de la Home te confirma cuál se está usando."
     )
 
     st.info(

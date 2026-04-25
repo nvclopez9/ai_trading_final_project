@@ -51,7 +51,7 @@ def _render_table(title: str, items: list[dict]) -> None:
         col_c.markdown(f"<span style='color:{color};'>{sign}{pct:.2f}%</span>", unsafe_allow_html=True)
         if col_btn.button("Ver", key=f"hot_{title}_{r['ticker']}"):
             st.session_state["active_ticker"] = r["ticker"]
-            st.switch_page("pages/2_Mercado.py")
+            st.switch_page("pages/4_Mercado.py")
 
 
 tab_g, tab_l, tab_a = st.tabs(["📈 Gainers", "📉 Losers", "🔊 Most active"])

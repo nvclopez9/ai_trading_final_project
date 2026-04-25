@@ -194,8 +194,9 @@ Ambos directorios están en `.gitignore` — cada usuario tiene su propia carter
 
 - **Python 3.12 / 3.13** (usa PEP 604 `float | None` y PEP 585 `list[dict]`).
 - **Streamlit** — UI y lógica de la app.
-- **LangChain 0.3.x** — `langchain`, `langchain-core`, `langchain-community`, `langchain-ollama`, `langchain-chroma`, `langchain-text-splitters`.
-- **Ollama** local — LLM `gemma3:4b` + embeddings `nomic-embed-text` (o `mxbai-embed-large` como alternativa).
+- **LangChain 0.3.x** — `langchain`, `langchain-core`, `langchain-community`, `langchain-ollama`, `langchain-openai`, `langchain-chroma`, `langchain-text-splitters`.
+- **Ollama** local — LLM `gemma3:4b` / `qwen2.5:3b` + embeddings `nomic-embed-text` (o `mxbai-embed-large` como alternativa).
+- **OpenRouter (opcional)** — pasarela cloud a modelos gratuitos con tool-calling (ej. `openai/gpt-oss-20b:free`, `meta-llama/llama-3.3-70b-instruct:free`). Se activa con `LLM_PROVIDER=openrouter` en `.env`.
 - **yfinance** — datos de mercado (scraping de Yahoo Finance).
 - **ChromaDB** — vectorstore local para el RAG.
 - **SQLite** — persistencia de la cartera simulada (incluido en la stdlib).
@@ -279,6 +280,34 @@ streamlit run app.py
 ```
 
 Abre el navegador en `http://localhost:8501` y empieza a chatear.
+
+---
+
+## 🤖 Cambiar de LLM (Ollama local ↔ OpenRouter cloud)
+
+El agente puede usar **dos motores intercambiables**, configurables sin tocar código vía `.env`:
+
+| Proveedor | Cuándo usarlo | Pros | Contras |
+|---|---|---|---|
+| **Ollama (local)** | Tienes RAM/CPU/GPU suficientes y quieres privacidad total. | Sin coste, sin cuota, sin red. | Limitado a modelos que quepan en tu PC. |
+| **OpenRouter (cloud)** | Quieres un modelo más potente o tu PC va justo. | Acceso a Llama 3.3 70B, Qwen3 80B, GPT-OSS, etc. (varios **gratis**). Tool-calling fiable. | Necesita API key + conexión. |
+
+**Cómo alternar:** edita `.env`, cambia `LLM_PROVIDER`, y **reinicia Streamlit** (la caché `@st.cache_resource` no detecta cambios en variables de entorno).
+
+```bash
+# Modo local (default)
+LLM_PROVIDER=ollama
+OLLAMA_MODEL=qwen2.5:3b
+
+# Modo cloud — crea API key gratis en https://openrouter.ai/keys
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_MODEL=openai/gpt-oss-20b:free
+```
+
+Si `LLM_PROVIDER=openrouter` pero falta la API key, la app hace **fallback automático a Ollama**. El badge **🤖 LLM activo** que aparece en la Home te confirma siempre cuál se está usando realmente.
+
+> ⚠️ **Seguridad**: nunca subas tu `.env` con la API key. Está incluido en `.gitignore`. El archivo a versionar es `.env.example` (sólo placeholders).
 
 ---
 

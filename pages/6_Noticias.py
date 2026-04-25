@@ -1,10 +1,22 @@
 """📰 Página de Noticias.
 
-Muestra las últimas noticias de un ticker, con la posibilidad de pedir
-opinión al agente sobre cualquier noticia individualmente o un resumen
-global de todas.
+Estructura:
+- Tab "🌐 Portal" — agregador de titulares de varios tickers populares
+  (mega-caps + ETFs de índices) ordenados por fecha. Es la entrada por
+  defecto cuando el usuario quiere ver "lo que se está moviendo".
+- Tab "🔍 Por ticker" — buscador clásico (input + dropdown de tickers
+  interesantes) con análisis rápido por noticia y resumen global.
+
+En cualquier noticia el usuario puede pulsar **"🤖 Analizar con IA"**: eso
+prepara un prompt rico (titular + datos del ticker + petición de análisis
+de sentimiento, impacto, acciones recomendadas) en ``session_state`` y
+salta a la pestaña 💬 Chat con ``st.switch_page``. El agente lo recibe en
+``prefill_prompt`` (mismo mecanismo que las sugerencias del Home).
 """
+from __future__ import annotations
+
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 
@@ -13,41 +25,110 @@ from src.tools.market_tools import fetch_ticker_news
 
 st.set_page_config(page_title="Noticias · Bot de Inversiones", page_icon="📰")
 st.title("📰 Noticias")
+st.caption(
+    "Portal de titulares del mercado y buscador por ticker. Pulsa "
+    "**🤖 Analizar con IA** en cualquier noticia para que el agente la "
+    "examine en profundidad (sentimiento, impacto, acciones)."
+)
 
 agent = get_agent()
 session_id = ensure_session_id()
 
-default_ticker = st.session_state.get("active_ticker", "AAPL")
-ticker = st.text_input(
-    "Ticker",
-    value=default_ticker,
-    help="Símbolo bursátil, p. ej. AAPL, MSFT, NVDA",
-).strip().upper()
 
-col_l, _ = st.columns([1, 4])
-load_btn = col_l.button("Cargar", type="primary", key="news_load_btn")
-
-# Guardamos la última carga en session_state para sobrevivir a reruns.
-news_key = f"news_items_{ticker}"
-if load_btn and ticker:
-    with st.spinner("Cargando noticias..."):
-        items = fetch_ticker_news(ticker, limit=10)
-    st.session_state[news_key] = items
-
-items = st.session_state.get(news_key, [])
-
-if not items:
-    st.info("Introduce un ticker y pulsa **Cargar** para ver sus últimas noticias.")
-    st.stop()
+# Universos curados.
+# - PORTAL_TICKERS: mezcla de mega-caps y ETFs índice; suficiente para construir
+#   un feed agregado representativo sin tirar 30 peticiones a yfinance.
+# - INTERESTING_TICKERS: lista del dropdown del buscador. Más amplia.
+PORTAL_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL"]
+INTERESTING_TICKERS = [
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B",
+    "AVGO", "AMD", "NFLX", "JPM", "V", "MA", "UNH", "JNJ",
+    "WMT", "XOM", "CVX", "BA", "DIS", "KO", "PEP", "INTC",
+    "QCOM", "ORCL", "CRM", "ADBE", "PYPL", "SHOP",
+    "SPY", "QQQ", "DIA", "IWM", "VOO", "VTI",
+]
 
 
 def _news_hash(n: dict) -> str:
-    """Hash estable por noticia para usar en keys de widgets y session_state."""
+    """Hash estable por noticia para keys de widgets y session_state."""
     raw = (n.get("link") or n.get("title", "")).encode("utf-8")
     return hashlib.md5(raw).hexdigest()[:10]
 
 
-def _ask_agent(prompt: str) -> str:
+def _build_analysis_prompt(news: dict, ticker: str) -> str:
+    """Compone el prompt que se inyecta al chat al pulsar 'Analizar con IA'.
+
+    Pedimos al agente que use sus tools (get_ticker_status, get_ticker_history,
+    search_finance_knowledge si aplica) para no inventar datos, y que analice
+    sentimiento + impacto + acciones recomendadas con disclaimer.
+    """
+    return (
+        f"Analiza esta noticia sobre {ticker} en profundidad y dame conclusiones útiles.\n\n"
+        f"Noticia:\n"
+        f"- Titular: {news.get('title','(sin título)')}\n"
+        f"- Fuente: {news.get('source','n/d')}\n"
+        f"- Fecha: {news.get('date','n/d')}\n"
+        f"- URL: {news.get('link','')}\n\n"
+        f"Pasos que quiero que des (usa tus tools, no inventes datos):\n"
+        f"1) Resumen de la noticia en 2-3 frases.\n"
+        f"2) Sentimiento detectado: positivo / negativo / neutral, con justificación.\n"
+        f"3) Llama a get_ticker_status('{ticker}') para conocer precio, cambio diario, P/E y "
+        f"capitalización. Llama también a get_ticker_history('{ticker}', '3mo') para situar "
+        f"el contexto reciente.\n"
+        f"4) Impacto previsible en el precio del valor: corto plazo (días) y medio plazo "
+        f"(semanas). Razona por qué.\n"
+        f"5) Riesgos y posibles catalizadores adicionales que el lector debería vigilar.\n"
+        f"6) Acciones recomendadas como ejercicio educativo: comprar / vender / mantener / esperar, "
+        f"y por qué. Si tiene sentido, ofrece llamar a analyze_buy_opportunities o "
+        f"analyze_sell_candidates con parámetros razonables, pero NO ejecutes órdenes "
+        f"todavía: solo propón.\n"
+        f"7) Cierra con un disclaimer explícito de que NO es asesoramiento financiero."
+    )
+
+
+def _send_to_chat(prompt: str) -> None:
+    """Inyecta el prompt en session_state y salta al chat."""
+    st.session_state["prefill_prompt"] = prompt
+    st.switch_page("pages/1_Chat.py")
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_portal_news(tickers: tuple[str, ...], per_ticker: int = 4) -> list[dict]:
+    """Pide noticias para varios tickers en paralelo, las funde y ordena por fecha.
+
+    Cache 5 minutos para no martillear yfinance al re-renderizar la página.
+    """
+    def _grab(t: str) -> list[dict]:
+        try:
+            items = fetch_ticker_news(t, limit=per_ticker) or []
+            for it in items:
+                it["_origin"] = t  # marcamos de qué ticker viene cada noticia
+            return items
+        except Exception:
+            return []
+
+    aggregated: list[dict] = []
+    with ThreadPoolExecutor(max_workers=min(8, len(tickers))) as ex:
+        for batch in ex.map(_grab, tickers):
+            aggregated.extend(batch)
+
+    # Dedupe por título normalizado (mismo titular puede aparecer en varios tickers).
+    seen = set()
+    unique = []
+    for it in aggregated:
+        key = (it.get("title") or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(it)
+
+    # Orden descendente por fecha (string ISO suele funcionar; si no, queda estable).
+    unique.sort(key=lambda x: x.get("date") or "", reverse=True)
+    return unique
+
+
+def _ask_agent_inline(prompt: str) -> str:
+    """Conversación directa con el agente sin saltar de página (botón rápido)."""
     try:
         result = agent.invoke(
             {"input": prompt},
@@ -58,50 +139,139 @@ def _ask_agent(prompt: str) -> str:
         return f"No pude obtener respuesta del agente: {e}"
 
 
-st.subheader(f"Últimas noticias de {ticker}")
-for n in items:
+def _render_news_card(n: dict, ticker: str, ctx: str) -> None:
+    """Renderiza una noticia con botones de acción.
+
+    ctx: 'portal' o 'search', sirve para distinguir keys de widgets entre tabs
+    cuando dos tabs muestran la misma noticia.
+    """
     h = _news_hash(n)
-    title = n["title"]
-    if n["link"]:
+    title = n.get("title") or "(sin título)"
+    if n.get("link"):
         st.markdown(f"**[{title}]({n['link']})**")
     else:
         st.markdown(f"**{title}**")
-    st.caption(f"{n['date']} · {n['source']}")
+    badge_origin = f" · `{n.get('_origin')}`" if n.get("_origin") and ctx == "portal" else ""
+    st.caption(f"{n.get('date','n/d')} · {n.get('source','n/d')}{badge_origin}")
 
-    btn_key = f"news_opinion_btn_{h}"
-    state_key = f"news_comment_{h}"
+    col_a, col_b = st.columns([1, 1])
+    quick_btn = col_a.button("💬 Opinión rápida", key=f"news_quick_{ctx}_{h}")
+    deep_btn = col_b.button("🤖 Analizar con IA (chat)", key=f"news_deep_{ctx}_{h}", type="primary")
 
-    if st.button("💬 Pedir opinión al agente", key=btn_key):
-        prompt = (
-            f"Analiza brevemente esta noticia sobre {ticker} y coméntala en 3-4 frases:\n"
-            f"Titular: {n['title']}\n"
-            f"Fuente: {n['source']}\n"
-            f"Fecha: {n['date']}\n"
-            f"URL: {n.get('link', '')}\n"
-            "Considera: relevancia para la empresa, posible impacto en el precio, y un disclaimer."
-        )
+    quick_state = f"news_quick_state_{ctx}_{h}"
+    if quick_btn:
         with st.spinner("El agente está leyendo..."):
-            st.session_state[state_key] = _ask_agent(prompt)
+            st.session_state[quick_state] = _ask_agent_inline(
+                f"Comenta brevemente (3 frases) esta noticia sobre {ticker}: "
+                f"{n.get('title','')} (fuente: {n.get('source','')}, fecha: {n.get('date','')})."
+                " Añade disclaimer."
+            )
+    if quick_state in st.session_state:
+        st.info(st.session_state[quick_state])
 
-    if state_key in st.session_state:
-        st.info(st.session_state[state_key])
+    if deep_btn:
+        _send_to_chat(_build_analysis_prompt(n, ticker))
 
     st.divider()
 
-# Expander de resumen global.
-with st.expander("💡 Pedir un resumen del agente sobre todas las noticias"):
-    summary_key = f"news_summary_{ticker}"
-    if st.button("Generar resumen", key=f"news_summary_btn_{ticker}"):
-        bullet_list = "\n".join(
-            f"- [{n['date']}] {n['title']} ({n['source']})" for n in items
+
+# -----------------------------------------------------------------------------
+# Tabs
+# -----------------------------------------------------------------------------
+tab_portal, tab_search = st.tabs(["🌐 Portal", "🔍 Por ticker"])
+
+
+# --- Portal -----------------------------------------------------------------
+with tab_portal:
+    st.subheader("🌐 Titulares destacados del mercado")
+    st.caption(
+        "Agregado de noticias de mega-caps y ETFs índice "
+        f"({', '.join(PORTAL_TICKERS)}). Refresco automático cada 5 min."
+    )
+    refresh = st.button("🔄 Refrescar portal", key="portal_refresh")
+    if refresh:
+        _fetch_portal_news.clear()  # invalida caché manualmente
+    with st.spinner("Cargando portal..."):
+        portal_items = _fetch_portal_news(tuple(PORTAL_TICKERS), per_ticker=4)
+
+    if not portal_items:
+        st.warning("No se pudieron cargar noticias en este momento.")
+    else:
+        # Limitamos el feed para que el render sea ágil.
+        for n in portal_items[:20]:
+            _render_news_card(n, ticker=n.get("_origin", ""), ctx="portal")
+
+
+# --- Por ticker -------------------------------------------------------------
+with tab_search:
+    st.subheader("🔍 Buscar noticias por ticker")
+    default_ticker = st.session_state.get("active_ticker", "AAPL")
+    if default_ticker not in INTERESTING_TICKERS:
+        # Si viene de Mercado/Home con un ticker que no está en el dropdown,
+        # lo añadimos al inicio para que el selectbox lo respete.
+        select_options = [default_ticker] + INTERESTING_TICKERS
+    else:
+        select_options = INTERESTING_TICKERS
+
+    col_sel, col_inp = st.columns([2, 2])
+    chosen_from_dropdown = col_sel.selectbox(
+        "Tickers interesantes",
+        options=select_options,
+        index=select_options.index(default_ticker) if default_ticker in select_options else 0,
+        help="Selección rápida de mega-caps y ETFs populares.",
+        key="news_dropdown",
+    )
+    manual = col_inp.text_input(
+        "...o introduce un ticker manualmente",
+        value="",
+        placeholder="p.ej. PLTR, ASML, SAN.MC",
+        key="news_manual",
+    ).strip().upper()
+
+    ticker = manual or chosen_from_dropdown
+
+    col_load, col_jump = st.columns([1, 1])
+    load_btn = col_load.button("Cargar noticias", type="primary", key="news_load_btn")
+    jump_btn = col_jump.button("💬 Llevar este ticker al chat", key="news_jump_chat_btn")
+
+    if jump_btn and ticker:
+        # Salto rápido al chat con un prompt genérico de análisis del ticker.
+        st.session_state["active_ticker"] = ticker
+        _send_to_chat(
+            f"Analiza el estado actual de {ticker}: usa get_ticker_status y "
+            f"get_ticker_news para darme un resumen, sentimiento general de las "
+            f"últimas noticias, y posibles acciones a considerar (educativo, no "
+            f"asesoramiento)."
         )
-        prompt = (
-            f"A continuación tienes los titulares más recientes sobre {ticker}. "
-            "Haz un resumen ejecutivo en 5-6 bullets destacando temas recurrentes, "
-            "posibles catalizadores y riesgos. No inventes cifras. Añade disclaimer.\n\n"
-            f"{bullet_list}"
-        )
-        with st.spinner("Resumiendo..."):
-            st.session_state[summary_key] = _ask_agent(prompt)
-    if summary_key in st.session_state:
-        st.markdown(st.session_state[summary_key])
+
+    news_key = f"news_items_{ticker}"
+    if load_btn and ticker:
+        with st.spinner("Cargando noticias..."):
+            st.session_state[news_key] = fetch_ticker_news(ticker, limit=10)
+
+    items = st.session_state.get(news_key, [])
+    if not items:
+        st.info("Selecciona o escribe un ticker y pulsa **Cargar noticias**.")
+    else:
+        st.markdown(f"#### Últimas noticias de {ticker}")
+        for n in items:
+            _render_news_card(n, ticker=ticker, ctx="search")
+
+        # Resumen global del ticker.
+        with st.expander("💡 Pedir un resumen del agente sobre todas las noticias"):
+            summary_key = f"news_summary_{ticker}"
+            if st.button("Generar resumen", key=f"news_summary_btn_{ticker}"):
+                bullet_list = "\n".join(
+                    f"- [{n.get('date','n/d')}] {n.get('title','')} ({n.get('source','n/d')})"
+                    for n in items
+                )
+                prompt = (
+                    f"A continuación tienes los titulares más recientes sobre {ticker}. "
+                    "Haz un resumen ejecutivo en 5-6 bullets destacando temas recurrentes, "
+                    "posibles catalizadores y riesgos. No inventes cifras. Añade disclaimer.\n\n"
+                    f"{bullet_list}"
+                )
+                with st.spinner("Resumiendo..."):
+                    st.session_state[summary_key] = _ask_agent_inline(prompt)
+            if summary_key in st.session_state:
+                st.markdown(st.session_state[summary_key])

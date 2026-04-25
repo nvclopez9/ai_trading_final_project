@@ -65,7 +65,28 @@
       "Bash(.venv/Scripts/python.exe -m pytest tests/ -x --tb=short)",
       "Bash(.venv/Scripts/python.exe -c \"from src.services.db import init_db; init_db\\(\\); print\\('migration OK'\\)\")",
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); free=[m for m in d.get\\('data',[]\\) if ':free' in m.get\\('id',''\\)]; tools=[m for m in free if 'tools' in \\(m.get\\('supported_parameters'\\) or []\\)]; [print\\(m['id']\\) for m in tools[:30]]\")",
-      "Bash(\"/c/Users/nvclo/Desktop/proyecto IA/.venv/Scripts/python.exe\" -m pip install \"langchain-openai>=0.2,<0.4\")"
+      "Bash(\"/c/Users/nvclo/Desktop/proyecto IA/.venv/Scripts/python.exe\" -m pip install \"langchain-openai>=0.2,<0.4\")",
+      "Bash(.venv/Scripts/python.exe -m pip install \"langchain-openai>=0.2,<0.4\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); models=[m for m in d['data'] if ':free' in m['id'] and 'tools' in \\(m.get\\('supported_parameters'\\) or []\\)]; [print\\(m['id'], '|', m.get\\('context_length'\\), '|', m.get\\('name'\\)\\) for m in models[:40]]\")",
+      "Bash(.venv/Scripts/python.exe -m py_compile src/agent/agent_builder.py app.py)",
+      "Bash(.venv/Scripts/python.exe -c \"from dotenv import load_dotenv; load_dotenv\\(\\); from src.agent.agent_builder import _build_llm, get_active_llm_info; llm = _build_llm\\(\\); print\\('class:', type\\(llm\\).__name__\\); print\\('info:', get_active_llm_info\\(\\)\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -q)",
+      "Bash(.venv/Scripts/python.exe -m py_compile app.py src/agent/agent_builder.py src/ui/help_view.py)",
+      "Bash(netstat -ano)",
+      "Bash(.venv/Scripts/python.exe -m streamlit run app.py --server.headless=true)",
+      "Bash(taskkill //F //FI \"WINDOWTITLE eq streamlit*\")",
+      "Bash(powershell -Command 'Get-Process | Where-Object { $_.ProcessName -eq '\\\\''python'\\\\'' -and $_.CommandLine -like '\\\\''*streamlit*'\\\\'' } | Stop-Process -Force')",
+      "Bash(awk '{print $5}')",
+      "Bash(xargs -I {} taskkill //F //PID {})",
+      "Bash(.venv/Scripts/python.exe -m py_compile src/tools/advisor_tool.py src/agent/agent_builder.py src/agent/prompts.py src/tools/portfolio_tools.py src/ui/portfolio_charts.py src/ui/chat_suggestions.py pages/3_Cartera.py pages/1_Chat.py app.py)",
+      "Bash(git mv *)",
+      "Bash(.venv/Scripts/python.exe -m py_compile app.py pages/1_Chat.py pages/2_Mi_Cartera.py pages/3_Mis_Carteras.py pages/4_Mercado.py pages/5_Top_del_Dia.py pages/6_Noticias.py pages/7_Ayuda.py src/agent/prompts.py src/tools/advisor_tool.py src/ui/help_view.py)",
+      "Bash(.venv/Scripts/python.exe -m py_compile pages/6_Noticias.py)",
+      "Bash(chmod +x run.sh)",
+      "Bash(./run.sh)",
+      "Bash(awk '$4 == \"LISTENING\" { n=split\\($2, p, \":\"\\); if \\(p[n]==\"8501\"\\) print \"PID activo en 8501:\", $5 }')",
+      "Bash(.venv/Scripts/python.exe -m py_compile src/agent/agent_builder.py src/agent/prompts.py)",
+      "Bash(.venv/Scripts/python.exe -m py_compile pages/1_Chat.py src/agent/agent_builder.py src/agent/prompts.py)"
     ]
   }
 }

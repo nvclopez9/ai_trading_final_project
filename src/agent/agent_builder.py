@@ -51,6 +51,10 @@ from dotenv import load_dotenv
 # LangChain — construcción del agente y tools.
 # ChatOllama: cliente de LangChain para el servidor Ollama local.
 from langchain_ollama import ChatOllama
+# ChatOpenAI: cliente compatible con la API de OpenAI. Lo reutilizamos para
+# OpenRouter porque su endpoint sigue el mismo contrato (chat/completions con
+# tool-calling). Solo hay que cambiar base_url y la api_key.
+from langchain_openai import ChatOpenAI
 # AgentExecutor y create_tool_calling_agent: montan el bucle del agente.
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 # Prompt templates: ChatPromptTemplate compone system + chat_history + human
@@ -80,6 +84,10 @@ from src.tools.portfolio_tools import (
     portfolio_set_risk,
     portfolio_set_markets,
 )
+from src.tools.advisor_tool import (
+    analyze_buy_opportunities,
+    analyze_sell_candidates,
+)
 
 load_dotenv()
 
@@ -104,29 +112,91 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
     return _SESSION_STORE[session_id]
 
 
-def build_agent() -> RunnableWithMessageHistory:
-    """Construye y devuelve el agente listo para ``invoke()``.
+def get_active_llm_info() -> tuple[str, str]:
+    """Devuelve (provider, model) según la configuración activa del .env.
 
-    Se llama UNA sola vez desde ``app.py`` dentro de un bloque
-    ``@st.cache_resource``: así no reinstanciamos el cliente Ollama ni
-    recompilamos el grafo del agente en cada rerun de Streamlit (que ocurre
-    a cada interacción del usuario).
+    Útil para mostrar en la UI qué LLM está atendiendo al agente. Replica
+    exactamente la misma lógica de selección/fallback que ``_build_llm`` para
+    que el badge no mienta sobre lo que realmente se está usando.
     """
-    # Lectura del modelo y host desde .env con defaults seguros.
+    provider = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+    if provider == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            return ("ollama", os.getenv("OLLAMA_MODEL", "gemma3:4b"))
+        return ("openrouter", os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"))
+    return ("ollama", os.getenv("OLLAMA_MODEL", "gemma3:4b"))
+
+
+def _build_ollama_llm() -> ChatOllama:
+    """Construye el cliente de Ollama local.
+
+    - num_ctx=12000: contexto suficiente para chat largo + observaciones de
+      tools (tablas ASCII de cartera y chunks del RAG pueden ocupar bastante).
+    - temperature=0.2: baja para que sea determinista al citar cifras y
+      elegir tools. No queremos creatividad al dar precios.
+    """
     model = os.getenv("OLLAMA_MODEL", "gemma3:4b")
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-
-    # Cliente del LLM local.
-    # - num_ctx=12000: contexto suficiente para chat largo + observaciones de
-    #   tools (tablas ASCII de cartera y chunks del RAG pueden ocupar bastante).
-    # - temperature=0.2: baja para que sea determinista al citar cifras y
-    #   elegir tools. No queremos creatividad al dar precios.
-    llm = ChatOllama(
+    return ChatOllama(
         model=model,
         base_url=host,
         num_ctx=12000,
         temperature=0.2,
     )
+
+
+def _build_openrouter_llm() -> ChatOpenAI:
+    """Construye el cliente de OpenRouter (vía API compatible OpenAI).
+
+    OpenRouter expone una pasarela única hacia decenas de modelos (incluidos
+    varios gratis). Como su API replica el contrato de OpenAI, podemos
+    reutilizar ``ChatOpenAI`` cambiando solo ``base_url`` y ``api_key``.
+
+    - default_headers: HTTP-Referer y X-Title son opcionales, pero
+      OpenRouter los usa para sus rankings públicos de uso por app.
+    """
+    model = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    site = os.getenv("OPENROUTER_SITE_URL", "http://localhost:8501")
+    app_name = os.getenv("OPENROUTER_APP_NAME", "Bot de Inversiones")
+    return ChatOpenAI(
+        model=model,
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+        temperature=0.2,
+        default_headers={"HTTP-Referer": site, "X-Title": app_name},
+    )
+
+
+def _build_llm():
+    """Selecciona el cliente LLM según ``LLM_PROVIDER`` del .env.
+
+    Si el proveedor es ``openrouter`` pero falta la API key, hace fallback
+    silencioso a Ollama para que la app siga funcionando localmente sin
+    necesidad de configurar credenciales.
+    """
+    provider = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+    if provider == "openrouter":
+        if not os.getenv("OPENROUTER_API_KEY", "").strip():
+            # Fallback transparente: sin API key no podemos hablar con OpenRouter.
+            return _build_ollama_llm()
+        return _build_openrouter_llm()
+    return _build_ollama_llm()
+
+
+def build_agent() -> RunnableWithMessageHistory:
+    """Construye y devuelve el agente listo para ``invoke()``.
+
+    Se llama UNA sola vez desde ``app.py`` dentro de un bloque
+    ``@st.cache_resource``: así no reinstanciamos el cliente LLM ni
+    recompilamos el grafo del agente en cada rerun de Streamlit (que ocurre
+    a cada interacción del usuario). Importante: si cambias variables del
+    .env (LLM_PROVIDER, modelos, API keys), debes reiniciar Streamlit para
+    que la caché se invalide y se reconstruya el agente.
+    """
+    # Cliente del LLM (Ollama local u OpenRouter remoto, según .env).
+    llm = _build_llm()
 
     # Lista de tools disponibles para el agente. El orden no importa, pero
     # los docstrings y el SYSTEM_PROMPT deben estar alineados con esta lista.
@@ -143,6 +213,8 @@ def build_agent() -> RunnableWithMessageHistory:
         portfolio_list,
         portfolio_set_risk,
         portfolio_set_markets,
+        analyze_buy_opportunities,
+        analyze_sell_candidates,
     ]
 
     # Prompt del agente. Los 4 elementos son obligatorios para el tool-calling:
@@ -169,8 +241,10 @@ def build_agent() -> RunnableWithMessageHistory:
     #  - verbose=False: no volcamos trazas al stdout (la UI lo maneja aparte).
     #  - handle_parsing_errors=True: si el LLM produce salida mal formada,
     #    el executor reintenta en lugar de reventar.
-    #  - max_iterations=6: tope para evitar loops infinitos de tool-calling
-    #    (p.ej. el LLM que insiste en llamar la misma tool una y otra vez).
+    #  - max_iterations=20: tope alto para que pueda ejecutar propuestas con
+    #    varias compras/ventas seguidas (cada portfolio_buy es 1 iteración) +
+    #    una llamada final a portfolio_view. Con 6 se cortaba a mitad de
+    #    propuestas de 4-5 órdenes y dejaba la cartera incoherente.
     #  - return_intermediate_steps=False: no necesitamos los pasos en la UI;
     #    solo nos quedamos con la respuesta final ("output").
     executor = AgentExecutor(
@@ -178,7 +252,7 @@ def build_agent() -> RunnableWithMessageHistory:
         tools=tools,
         verbose=False,
         handle_parsing_errors=True,
-        max_iterations=6,
+        max_iterations=20,
         return_intermediate_steps=False,
     )
 
