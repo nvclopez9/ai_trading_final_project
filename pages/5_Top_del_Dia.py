@@ -19,7 +19,7 @@ from src.ui.components import (
     render_topbar,
 )
 
-st.set_page_config(page_title="Top del día · Bot de Inversiones", page_icon="🔥")
+st.set_page_config(page_title="Top del día · Bot de Inversiones", page_icon="🔥", layout="wide", initial_sidebar_state="collapsed")
 inject_app_styles()
 render_topbar(active="Top")
 
@@ -89,9 +89,12 @@ def _render_grid(title: str, items: list[dict]) -> None:
         cols = st.columns(5)
         for col, r in zip(cols, chunk):
             col.markdown(_card_html(r), unsafe_allow_html=True)
-            if col.button("Ver", key=f"hot_{title}_{r['ticker']}"):
+            col.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+            if col.button("Ver", key=f"hot_{title}_{r['ticker']}", use_container_width=True):
                 st.session_state["active_ticker"] = r["ticker"]
                 st.switch_page("pages/4_Mercado.py")
+        # Espacio entre filas para que las cards no queden pegadas verticalmente.
+        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
         # Si la última fila tiene menos de 5, deja el resto vacío (st.columns ya equilibra).
 
 

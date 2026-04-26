@@ -4,7 +4,7 @@ import streamlit as st
 from src.ui.components import COLOR_DIM, hero, inject_app_styles, render_topbar
 from src.ui.help_view import render_help_tab
 
-st.set_page_config(page_title="Ayuda · Bot de Inversiones", page_icon="?")
+st.set_page_config(page_title="Ayuda · Bot de Inversiones", page_icon="?", layout="wide", initial_sidebar_state="collapsed")
 inject_app_styles()
 render_topbar(active="Ayuda")
 

@@ -146,7 +146,11 @@ def _build_ollama_llm() -> ChatOllama:
         model=model,
         base_url=host,
         num_ctx=12000,
-        temperature=0.2,
+        # Why: extracto1.md mostró el agente fabricando precios y tablas
+        # ($208.26 NVDA, $82.57 INTC, etc.) sin haber llamado a ninguna tool.
+        # Bajar temperatura a 0.1 reduce alucinaciones numéricas y empuja al
+        # modelo a usar las tools en lugar de "rellenar" con su memoria.
+        temperature=0.1,
     )
 
 
@@ -168,7 +172,9 @@ def _build_openrouter_llm() -> ChatOpenAI:
         model=model,
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
-        temperature=0.2,
+        # Why: ver _build_ollama_llm — bajamos a 0.1 para reducir invención
+        # de cifras evidenciada en extracto1.md (líneas 89-99, 113-128).
+        temperature=0.1,
         default_headers={"HTTP-Referer": site, "X-Title": app_name},
     )
 

@@ -41,6 +41,7 @@ st.set_page_config(
     page_title="Bot de Inversiones",
     page_icon=":chart_with_upwards_trend:",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 inject_app_styles()
 render_topbar(active="Inicio")

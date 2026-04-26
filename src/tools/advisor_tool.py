@@ -166,7 +166,9 @@ def analyze_buy_opportunities(
     Devuelve un análisis textual con la lógica y un bloque PROPUESTA EJECUTABLE
     con líneas formato 'COMPRAR <qty> <TICKER>' que el agente debe presentar
     al usuario. Si el usuario aprueba, el agente debe llamar a portfolio_buy
-    una vez por cada línea de la propuesta. NO ejecuta órdenes esta tool."""
+    una vez por cada línea de la propuesta — EXACTAMENTE los tickers y qty
+    de la propuesta, sin sustituir múltiples tickers por una compra masiva
+    de uno solo. NO ejecuta órdenes esta tool."""
     try:
         pid = get_active_portfolio_id()
         p = portfolios.get_portfolio(pid)

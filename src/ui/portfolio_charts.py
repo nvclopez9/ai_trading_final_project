@@ -30,7 +30,16 @@ import yfinance as yf
 from src.services import portfolio as portfolio_svc  # noqa: F401  (uso futuro)
 from src.services import portfolios as portfolios_svc
 from src.services.db import get_conn
-from src.ui.components import COLOR_ACCENT, COLOR_DOWN, COLOR_NEUTRAL, COLOR_UP, fmt_money, fmt_pct
+from src.ui.components import (
+    COLOR_ACCENT,
+    COLOR_ACCENT_2,
+    COLOR_DOWN,
+    COLOR_MUTED,
+    COLOR_NEUTRAL,
+    COLOR_UP,
+    fmt_money,
+    fmt_pct,
+)
 
 
 # Timelines soportados y su mapeo a periodos / intervalos de yfinance.
@@ -491,4 +500,79 @@ def render_portfolio_pnl_chart(portfolio_id: int) -> None:
                 pass
 
     fig = build_portfolio_pnl_figure(df, currency=currency)
+
+    # Overlay sesión extendida (after-hours): si hay datos AH a nivel global,
+    # extendemos la última observación con un punto/segmento punteado para que
+    # se vea el "movimiento fuera de horario" del patrimonio total.
+    ah_total = None
+    ah_delta_pct = None
+    try:
+        pv = portfolio_svc.get_portfolio_value(pid)
+        ah_total = pv.get("total_value_after_hours")
+        ah_delta_pct = pv.get("after_hours_delta_pct")
+    except Exception:
+        ah_total = None
+        ah_delta_pct = None
+
+    if ah_total is not None and not df.empty:
+        last_ts = df.index[-1]
+        last_val = float(df["total_value"].iloc[-1])
+        # Calculamos un "siguiente paso" estimado para colocar el punto AH a la
+        # derecha del último timestamp del histórico. Si solo hay una muestra,
+        # caemos a 1 día como aproximación razonable.
+        try:
+            if len(df.index) >= 2:
+                step = df.index[-1] - df.index[-2]
+            else:
+                step = pd.Timedelta(days=1)
+        except Exception:
+            step = pd.Timedelta(days=1)
+        ah_ts = last_ts + step
+
+        delta_sign = (ah_delta_pct or 0.0)
+        if delta_sign > 0:
+            ah_color = COLOR_UP
+        elif delta_sign < 0:
+            ah_color = COLOR_DOWN
+        else:
+            ah_color = COLOR_ACCENT_2
+
+        ah_label = "After hours"
+        fig.add_trace(
+            go.Scatter(
+                x=[last_ts, ah_ts],
+                y=[last_val, float(ah_total)],
+                mode="lines+markers",
+                name=ah_label,
+                line=dict(color=ah_color, width=2, dash="dot"),
+                marker=dict(color=ah_color, size=8, symbol="circle-open"),
+                hovertemplate=(
+                    f"{ah_label}<br>%{{x|%Y-%m-%d %H:%M}}<br>"
+                    "Patrimonio AH: %{y:,.2f}<extra></extra>"
+                ),
+            )
+        )
+        try:
+            fig.add_annotation(
+                x=ah_ts,
+                y=float(ah_total),
+                text=f"AH {fmt_pct(ah_delta_pct) if ah_delta_pct is not None else ''}".strip(),
+                showarrow=True,
+                arrowhead=0,
+                arrowcolor=ah_color,
+                font=dict(color=ah_color, size=11),
+                bgcolor="rgba(0,0,0,0)",
+                xanchor="left",
+                yshift=6,
+            )
+        except Exception:
+            pass
+
     st.plotly_chart(fig, use_container_width=True)
+
+    # Caption discreto bajo el chart con el valor AH global, solo si existe.
+    if ah_total is not None:
+        ah_pct_str = fmt_pct(ah_delta_pct) if ah_delta_pct is not None else "—"
+        st.caption(
+            f"Sesión extendida USA · {fmt_money(ah_total, currency)} ({ah_pct_str})"
+        )

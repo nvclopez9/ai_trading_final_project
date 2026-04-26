@@ -149,16 +149,16 @@ def side_badge(side: str) -> str:
 
 def hero(title: str, subtitle: str, badge_html: str | None = None) -> None:
     """Encabezado de página: título grande + subtítulo + opcional badge."""
-    badge_block = f"<div style='margin-top:14px;'>{badge_html}</div>" if badge_html else ""
+    badge_block = f"<div style='margin-top:16px;'>{badge_html}</div>" if badge_html else ""
     st.markdown(
         f"""
-        <div style="margin: 8px 0 28px 0;">
+        <div style="margin: 18px 0 32px 0;">
           <h1 style="margin:0;font-size:2.1rem;font-weight:700;
-                     letter-spacing:-0.024em;color:{COLOR_TEXT};">
+                     letter-spacing:-0.024em;color:{COLOR_TEXT};line-height:1.15;">
             {title}
           </h1>
-          <p style="margin:8px 0 0 0;color:{COLOR_MUTED};font-size:15px;
-                    max-width:780px;line-height:1.55;">
+          <p style="margin:10px 0 0 0;color:{COLOR_MUTED};font-size:15px;
+                    max-width:780px;line-height:1.6;">
             {subtitle}
           </p>
           {badge_block}
@@ -239,24 +239,28 @@ def stat_tile(label: str, value: str, delta: float | None = None, hint: str | No
         )
     return (
         f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
-        f"border-radius:14px;padding:18px 20px;height:100%;'>"
+        f"border-radius:14px;padding:20px 22px;height:100%;min-height:108px;"
+        f"box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-start;'>"
         f"<div style='font-size:11px;text-transform:uppercase;letter-spacing:0.1em;"
-        f"color:{COLOR_MUTED};font-weight:500;margin-bottom:10px;'>{label}</div>"
+        f"color:{COLOR_MUTED};font-weight:500;margin-bottom:12px;'>{label}</div>"
         f"<div style='font-family:{_MONO};font-size:1.7rem;font-weight:600;"
-        f"color:{COLOR_TEXT};letter-spacing:-0.01em;line-height:1.1;'>{value}</div>"
+        f"color:{COLOR_TEXT};letter-spacing:-0.01em;line-height:1.15;'>{value}</div>"
         f"{delta_html}{hint_html}"
         f"</div>"
     )
 
 
 def stat_strip(tiles: Iterable[str]) -> None:
-    """Pinta una fila horizontal de stat_tile."""
+    """Pinta una fila horizontal de stat_tile, con margen vertical propio
+    para que la franja de KPIs respire por encima y por debajo."""
     tiles = list(tiles)
     if not tiles:
         return
-    cols = st.columns(len(tiles))
+    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+    cols = st.columns(len(tiles), gap="small")
     for col, html in zip(cols, tiles):
         col.markdown(html, unsafe_allow_html=True)
+    st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
 
 def section_eyebrow(label: str) -> str:
@@ -267,16 +271,16 @@ def section_eyebrow(label: str) -> str:
 
 def section_title(title: str, subtitle: str | None = None, action_html: str | None = None) -> None:
     sub = (
-        f"<p style='margin:4px 0 0 0;color:{COLOR_MUTED};font-size:13px;'>{subtitle}</p>"
+        f"<p style='margin:6px 0 0 0;color:{COLOR_MUTED};font-size:13px;line-height:1.5;'>{subtitle}</p>"
         if subtitle else ""
     )
     action = f"<div>{action_html}</div>" if action_html else ""
     st.markdown(
         f"""
         <div style='display:flex;justify-content:space-between;align-items:flex-end;
-                    margin:28px 0 14px 0;'>
+                    margin:36px 0 18px 0;gap:16px;'>
           <div>
-            <h2 style='margin:0;font-weight:600;letter-spacing:-0.018em;'>{title}</h2>
+            <h2 style='margin:0;font-weight:600;letter-spacing:-0.018em;line-height:1.2;'>{title}</h2>
             {sub}
           </div>
           {action}
@@ -314,17 +318,17 @@ def holding_card(ticker: str, qty: float, value: float | None,
         )
     return (
         f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
-        f"border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:6px;"
-        f"transition:border-color 140ms ease;height:100%;'>"
-        f"<div style='display:flex;justify-content:space-between;align-items:flex-start;'>"
-        f"<div>"
+        f"border-radius:14px;padding:18px 18px 20px;display:flex;flex-direction:column;gap:4px;"
+        f"transition:border-color 140ms ease;height:100%;min-height:152px;box-sizing:border-box;'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:8px;'>"
+        f"<div style='min-width:0;'>"
         f"<div style='font-family:{_MONO};font-weight:700;letter-spacing:0.4px;"
         f"font-size:1rem;color:{COLOR_TEXT};'>{ticker}</div>"
-        f"<div style='color:{COLOR_MUTED};font-size:12px;margin-top:2px;'>{fmt_qty(qty)} uds</div>"
+        f"<div style='color:{COLOR_MUTED};font-size:12px;margin-top:3px;'>{fmt_qty(qty)} uds</div>"
         f"</div>"
         f"{delta_badge(pnl_pct)}"
         f"</div>"
-        f"<div style='font-family:{_MONO};font-size:1.25rem;font-weight:600;color:{COLOR_TEXT};margin-top:6px;'>"
+        f"<div style='font-family:{_MONO};font-size:1.25rem;font-weight:600;color:{COLOR_TEXT};margin-top:10px;'>"
         f"{val_str}</div>"
         f"{avg_html}{ah_html}"
         f"</div>"
@@ -394,13 +398,14 @@ def news_card(title: str, source: str, ts: str | None,
     )
     return (
         f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
-        f"border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;height:100%;'>"
+        f"border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;"
+        f"height:100%;min-height:124px;box-sizing:border-box;'>"
         f"<div style='display:flex;gap:8px;align-items:center;justify-content:space-between;'>"
         f"<div style='display:flex;gap:8px;align-items:center;'>"
         f"{ticker_pill}"
         f"<span style='color:{COLOR_MUTED};font-size:12px;'>{source}</span>"
         f"</div>"
-        f"<span style='color:{COLOR_DIM};font-size:11px;'>{rel}</span>"
+        f"<span style='color:{COLOR_DIM};font-size:11px;white-space:nowrap;'>{rel}</span>"
         f"</div>"
         f"{headline}"
         f"</div>"
@@ -445,8 +450,23 @@ def inject_app_styles() -> None:
             .block-container {{
                 padding-top: 2.2rem;
                 padding-bottom: 4rem;
-                max-width: 1280px;
+                max-width: 1320px;
             }}
+            /* Espaciado vertical por defecto entre bloques verticales del layout
+               para que el flujo respire sin perder densidad. */
+            .block-container [data-testid="stVerticalBlock"] {{
+                gap: 0.6rem;
+            }}
+            /* Dentro de columnas, no inflamos el gap (ya viene del padre). */
+            [data-testid="column"] [data-testid="stVerticalBlock"] {{
+                gap: 0.45rem;
+            }}
+            /* Gap horizontal entre columnas — Streamlit pone muy poco por defecto. */
+            .block-container [data-testid="stHorizontalBlock"] {{
+                gap: 0.85rem;
+            }}
+            /* La topbar es horizontal pero la queremos compacta — el override
+               específico vive en la regla .topbar-wrapper [data-testid=...]. */
             h1, h2, h3, h4, h5 {{
                 font-weight: 600;
                 letter-spacing: -0.018em;
@@ -499,6 +519,7 @@ def inject_app_styles() -> None:
             }}
 
             /* Tabs */
+            .stTabs {{ margin-top: 8px; }}
             .stTabs [data-baseweb="tab-list"] {{
                 gap: 0;
                 background: transparent;
@@ -516,6 +537,11 @@ def inject_app_styles() -> None:
             .stTabs [aria-selected="true"] {{
                 color: {COLOR_ACCENT};
                 border-bottom-color: {COLOR_ACCENT};
+            }}
+            /* Aire dentro del panel de cada tab para que el contenido no quede
+               pegado a la barra superior de tabs. */
+            .stTabs [data-baseweb="tab-panel"] {{
+                padding-top: 22px;
             }}
 
             /* Botones */
@@ -593,13 +619,94 @@ def inject_app_styles() -> None:
                 border: 1px solid {COLOR_BORDER};
                 border-radius: 10px;
                 color: {COLOR_TEXT};
+                margin: 10px 0;
+                padding: 14px 16px;
+            }}
+
+            /* Divider con más aire alrededor */
+            hr, div[data-testid="stDivider"] {{
+                margin: 28px 0 !important;
+            }}
+
+            /* Forms y expanders: más respiración */
+            div[data-testid="stForm"] {{
+                background: {COLOR_SURFACE};
+                border: 1px solid {COLOR_BORDER};
+                border-radius: 12px;
+                padding: 18px 20px;
+            }}
+            div[data-testid="stForm"] [data-testid="stHorizontalBlock"] {{
+                gap: 14px !important;
+            }}
+            div[data-testid="stExpander"] + div[data-testid="stExpander"],
+            div[data-testid="stExpander"] {{
+                margin-top: 12px;
+            }}
+
+            /* Plotly chart respira por arriba */
+            div[data-testid="stPlotlyChart"] {{
+                margin-top: 8px;
+                margin-bottom: 8px;
+            }}
+
+            /* Caption discreto bajo títulos / acciones */
+            div[data-testid="stCaptionContainer"], .stCaption {{
+                color: {COLOR_DIM};
             }}
 
             /* Sidebar oculta — la navegación es topbar */
-            [data-testid="stSidebar"] {{ display: none !important; }}
-            [data-testid="stSidebarNav"] {{ display: none !important; }}
-            [data-testid="collapsedControl"] {{ display: none !important; }}
+            [data-testid="stSidebar"],
+            [data-testid="stSidebarNav"],
+            [data-testid="stSidebarNavItems"],
+            [data-testid="stSidebarContent"],
+            [data-testid="collapsedControl"],
+            [data-testid="stSidebarCollapsedControl"],
+            [data-testid="stSidebarCollapseButton"],
+            [data-testid="stSidebarUserContent"],
+            section[data-testid="stSidebar"],
+            div[data-testid="stSidebar"] {{
+                display: none !important;
+                width: 0 !important;
+                min-width: 0 !important;
+                visibility: hidden !important;
+            }}
+            section[data-testid="stMain"] {{ margin-left: 0 !important; padding-left: 0 !important; }}
             section[data-testid="stMain"] > div {{ padding-left: 1rem; padding-right: 1rem; }}
+            .stAppViewContainer > section:first-child {{ display: none !important; }}
+
+            /* Topbar sticky: se queda fija arriba al hacer scroll, con su propio
+               fondo y un divisor inferior. El padding-top se aplica con un
+               negativo que compensa el del block-container para que pegue al borde. */
+            .topbar-wrapper {{
+                position: sticky;
+                top: 0;
+                z-index: 1000;
+                background: {COLOR_BG};
+                margin: -2.2rem -1rem 1.5rem -1rem;
+                padding: 14px 1rem 12px 1rem;
+                border-bottom: 1px solid {COLOR_BORDER};
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+            }}
+            .topbar-wrapper [data-testid="stHorizontalBlock"] {{
+                gap: 6px !important;
+                align-items: center !important;
+            }}
+            .topbar-wrapper [data-testid="stVerticalBlock"] {{
+                gap: 0 !important;
+            }}
+            .topbar-wrapper [data-testid="column"] {{
+                display: flex;
+                align-items: center;
+                min-width: 0;
+            }}
+            .topbar-brand {{
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                white-space: nowrap;
+                padding-left: 4px;
+            }}
 
             /* Topbar nav: estiliza st.page_link como pill */
             [data-testid="stPageLink"] a, a[data-testid="stPageLink-NavLink"] {{
@@ -641,7 +748,6 @@ def inject_app_styles() -> None:
             }}
 
             hr {{
-                margin: 1.6rem 0;
                 border: none;
                 border-top: 1px solid {COLOR_BORDER};
             }}
@@ -654,6 +760,7 @@ def inject_app_styles() -> None:
                 padding: 0;
                 overflow: hidden;
             }}
+            .pill-card + .pill-card {{ margin-top: 14px; }}
             .ticker-row {{
                 display: flex;
                 align-items: center;
@@ -662,6 +769,7 @@ def inject_app_styles() -> None:
                 border-bottom: 1px solid {COLOR_BORDER};
                 font-family: {_MONO};
                 transition: background 120ms ease;
+                gap: 12px;
             }}
             .ticker-row:last-child {{ border-bottom: none; }}
             .ticker-row:hover {{ background: {COLOR_SURFACE_2}; }}

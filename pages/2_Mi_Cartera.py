@@ -27,7 +27,7 @@ from src.ui.portfolio_charts import render_portfolio_pnl_chart
 from src.ui.portfolio_view import render_portfolio_tab
 from src.ui.watchlist_view import render_watchlist_tab
 
-st.set_page_config(page_title="Cartera · Bot de Inversiones", page_icon="💼", layout="wide")
+st.set_page_config(page_title="Cartera · Bot de Inversiones", page_icon="💼", layout="wide", initial_sidebar_state="collapsed")
 inject_app_styles()
 render_topbar(active="Cartera")
 

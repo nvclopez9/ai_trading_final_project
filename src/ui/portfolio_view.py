@@ -71,10 +71,11 @@ def render_portfolio_tab(portfolio_id: int | None = None) -> None:
                 ),
                 unsafe_allow_html=True,
             )
-        # Si la fila no llena, dejamos los huecos vacíos (las columnas extra
-        # no consumen contenido). Streamlit ya renderiza huecos en blanco.
+        # Espacio entre filas — sin esto, las cards quedan pegadas verticalmente
+        # cuando hay más de 5 posiciones.
+        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
 
-    st.write("")
+    st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
 
     # ---- Charts: allocation + pnl ----------------------------------------
     c1, c2 = st.columns(2)

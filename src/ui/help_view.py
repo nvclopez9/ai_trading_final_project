@@ -54,18 +54,24 @@ _CAPABILITIES = [
 
 
 def _capability_card(idx: int, block: dict) -> None:
-    """Pinta una card con título, subtítulo y botones de ejemplo clickables."""
+    """Pinta una card con título, subtítulo y botones de ejemplo clickables.
+
+    La cabecera (título + subtítulo) se pinta como ``pill-card`` y los
+    botones quedan justo debajo, formando un bloque cohesionado por la
+    columna que los contiene. Añadimos un pequeño separador para que los
+    botones no queden pegados al borde inferior de la cabecera.
+    """
     st.markdown(
         f"""
-        <div class="pill-card" style="padding:20px;height:100%;">
-          <div style="font-size:14px;font-weight:700;color:{COLOR_TEXT};
-                      letter-spacing:-0.01em;margin-bottom:4px;">{block['title']}</div>
-          <div style="font-size:12px;color:{COLOR_MUTED};margin-bottom:14px;
-                      line-height:1.5;">{block['subtitle']}</div>
+        <div class="pill-card" style="padding:20px 22px;">
+          <div style="font-size:15px;font-weight:700;color:{COLOR_TEXT};
+                      letter-spacing:-0.01em;margin-bottom:6px;">{block['title']}</div>
+          <div style="font-size:12.5px;color:{COLOR_MUTED};line-height:1.55;">{block['subtitle']}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
     for j, (label, prompt) in enumerate(block["examples"]):
         if st.button(label, key=f"help_ex_{idx}_{j}", use_container_width=True):
             st.session_state["prefill_prompt"] = prompt

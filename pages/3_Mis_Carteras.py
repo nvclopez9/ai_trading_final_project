@@ -25,7 +25,7 @@ from src.ui.components import (
     stat_tile,
 )
 
-st.set_page_config(page_title="Carteras · Bot de Inversiones", page_icon="🧺")
+st.set_page_config(page_title="Carteras · Bot de Inversiones", page_icon="🧺", layout="wide", initial_sidebar_state="collapsed")
 inject_app_styles()
 render_topbar(active="Carteras")
 
@@ -302,3 +302,4 @@ for i in range(0, len(all_portfolios), 2):
             _portfolio_card_html(p, is_active=(p["id"] == selected_id)),
             unsafe_allow_html=True,
         )
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)

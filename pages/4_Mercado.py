@@ -50,7 +50,7 @@ from src.ui.news_view import render_news_panel
 
 
 # ─── Setup ──────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Mercado · Bot de Inversiones", page_icon="M")
+st.set_page_config(page_title="Mercado · Bot de Inversiones", page_icon="M", layout="wide", initial_sidebar_state="collapsed")
 inject_app_styles()
 render_topbar(active="Mercado")
 

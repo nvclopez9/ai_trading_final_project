@@ -28,7 +28,7 @@ from src.ui.components import (
     section_title,
 )
 
-st.set_page_config(page_title="Noticias · Bot de Inversiones", page_icon="📰")
+st.set_page_config(page_title="Noticias · Bot de Inversiones", page_icon="📰", layout="wide", initial_sidebar_state="collapsed")
 inject_app_styles()
 render_topbar(active="Noticias")
 
@@ -153,6 +153,7 @@ def _render_news_item(n: dict, ticker: str, ctx: str) -> None:
         news_card(title=title, source=source, ts=ts, ticker=show_ticker, url=n.get("link")),
         unsafe_allow_html=True,
     )
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
     col_a, col_b = st.columns([1, 1])
     quick_btn = col_a.button("Opinión rápida", key=f"news_quick_{ctx}_{h}")
@@ -204,6 +205,7 @@ with tab_portal:
             for col, n in zip(cols, items_to_show[i:i + 2]):
                 with col:
                     _render_news_item(n, ticker=n.get("_origin", ""), ctx="portal")
+            st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
 
 
 # --- Por ticker -------------------------------------------------------------
@@ -264,6 +266,7 @@ with tab_search:
             for col, n in zip(cols, items[i:i + 2]):
                 with col:
                     _render_news_item(n, ticker=ticker, ctx="search")
+            st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
 
         # Resumen global del ticker.
         with st.expander("Pedir un resumen del agente sobre todas las noticias"):

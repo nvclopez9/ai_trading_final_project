@@ -31,7 +31,7 @@ from src.ui.components import (
     section_title,
 )
 
-st.set_page_config(page_title="Chat · Bot de Inversiones", page_icon="💬", layout="wide")
+st.set_page_config(page_title="Chat · Bot de Inversiones", page_icon="💬", layout="wide", initial_sidebar_state="collapsed")
 inject_app_styles()
 render_topbar(active="Chat")
 

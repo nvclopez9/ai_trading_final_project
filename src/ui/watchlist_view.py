@@ -56,6 +56,7 @@ def render_watchlist_tab(portfolio_id: int) -> None:
         return
 
     # Tabla con botones por fila.
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
     header = st.columns([1.5, 2, 1.2, 1.2, 1.5, 1.2, 1])
     header[0].markdown("**Ticker**")
     header[1].markdown("**Nota**")
@@ -64,7 +65,10 @@ def render_watchlist_tab(portfolio_id: int) -> None:
     header[4].markdown("**Añadido**")
     header[5].markdown("**Chat**")
     header[6].markdown("**Quitar**")
-    st.divider()
+    st.markdown(
+        "<div style='border-top:1px solid #252D3D;margin:8px 0 12px 0;'></div>",
+        unsafe_allow_html=True,
+    )
 
     for it in items:
         cols = st.columns([1.5, 2, 1.2, 1.2, 1.5, 1.2, 1])

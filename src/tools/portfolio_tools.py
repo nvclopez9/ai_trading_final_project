@@ -36,12 +36,14 @@ def get_active_portfolio_id() -> int:
 
 
 def _active_name_suffix() -> str:
-    """Devuelve sufijo ' (cartera: NOMBRE)' para que el agente indique qué cartera usa."""
+    """Devuelve sufijo ' (cartera #ID · NOMBRE)' para que el agente indique
+    siempre qué cartera está manipulando (evita confusiones cuando el usuario
+    tiene varias carteras y opera/lee a la vez)."""
     pid = get_active_portfolio_id()
     p = portfolios.get_portfolio(pid)
     if p is None:
-        return f" (cartera id={pid})"
-    return f" (cartera: {p['name']})"
+        return f" (cartera #{pid})"
+    return f" (cartera #{pid} · {p['name']})"
 
 
 @tool
