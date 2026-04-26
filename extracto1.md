@@ -1,3 +1,20 @@
+
+📈Bot de Inversiones
+Inicio
+
+Chat
+Cartera
+
+Carteras
+
+Mercado
+
+Top
+
+Noticias
+
+Ayuda
+
 Chat 
 Pregúntale al agente sobre precios, noticias, conceptos o tu cartera.
 
@@ -130,3 +147,44 @@ Estado final de la cartera
 
 Disclaimer
 Esta operación es puramente ilustrativa y no constituye asesoramiento financiero. No garantizamos resultados ni cubrimos riesgos inherentes a la inversión.
+
+Compara AAPL vs MSFT
+
+Comparativa rápida AAPL vs MSFT
+
+Parámetro	AAPL	MSFT
+Precio actual	$271.06	$424.60
+Cambio diario	‑0.87 %	+2.12 %
+P/E	34.35	26.59
+Capitalización	$3.98 T	$3.16 T
+Dividend yield	0.38 %	0.86 %
+52‑semana high	$288.62	$555.45
+52‑semana low	$193.25	$356.28
+Beta	1.11	1.11
+YTD %	+0.11 %	‑10.01 %
+Conclusiones breves
+
+AAPL está más valorado (P/E más alto) y tiene una capitalización mayor, pero su rendimiento YTD es casi neutro, mientras que MSFT ha tenido una caída significativa en el año, aunque su P/E es más bajo y ofrece un mayor rendimiento de dividendos.
+Ambos tienen la misma beta, indicando volatilidad similar respecto al mercado.
+Si buscas un activo con mayor crecimiento reciente, AAPL muestra un rendimiento positivo, mientras que MSFT necesita recuperarse de su caída YTD.
+Disclaimer: Esta información es solo informativa y no constituye asesoramiento financiero.
+
+Cartera activa
+#1 · Default
+Sugerencias
+
+
+
+
+Cómo usar
+Pide cotizaciones: "precio de TSLA"
+Opera tu cartera: "compra 5 NVDA"
+Pide explicaciones: "qué es un ETF"
+Compara: "AAPL vs MSFT"
+La cartera de la izquierda es la que usarán las operaciones.
+Catálogo de prompts
+Explora todo lo que el agente sabe hacer
+
+💡 Sugerencias de prompts (65+)
+
+Pregunta sobre un ticker, p. ej. '¿Cómo está AAPL?'
