@@ -1,29 +1,41 @@
-"""🧺 Carteras — gestión multi-cartera.
+"""Carteras — gestión multi-cartera.
 
-Primera página de la sidebar (prefijo ``0_``). Permite:
-  - Seleccionar la cartera ACTIVA (se guarda en session_state y se propaga
-    a las tools del agente).
-  - Ver resumen de la cartera activa (cash, valor, P&L).
-  - Crear nuevas carteras con nombre, cash inicial, riesgo, mercados.
-  - Listar todas las carteras con tabla resumen.
-  - Eliminar carteras (excepto la Default).
+Permite seleccionar la cartera activa, ver su detalle, crearla, reiniciarla
+o eliminarla, y listar todas las carteras existentes en formato grid.
 """
-import pandas as pd
 import streamlit as st
 
 from src.agent.singleton import get_agent, ensure_session_id
 from src.services import portfolio as pf_service
 from src.services import portfolios as pf_svc
 from src.tools.portfolio_tools import set_active_portfolio
-from src.ui.components import fmt_money, fmt_pct
+from src.ui.components import (
+    COLOR_ACCENT,
+    COLOR_BORDER,
+    COLOR_DIM,
+    COLOR_MUTED,
+    COLOR_SURFACE,
+    COLOR_TEXT,
+    fmt_money,
+    hero,
+    inject_app_styles,
+    render_topbar,
+    section_title,
+    stat_strip,
+    stat_tile,
+)
 
 st.set_page_config(page_title="Carteras · Bot de Inversiones", page_icon="🧺")
+inject_app_styles()
+render_topbar(active="Carteras")
 
 _ = get_agent()
 _ = ensure_session_id()
 
-st.title("🧺 Mis carteras")
-st.caption("Gestiona varias carteras simuladas con perfiles y mercados distintos.")
+hero(
+    "Mis carteras",
+    "Gestiona varias carteras simuladas con perfiles de riesgo y mercados distintos.",
+)
 
 # -----------------------------------------------------------------------------
 # Selector de cartera activa
@@ -45,51 +57,80 @@ selected_id = st.selectbox(
     options=ids,
     format_func=lambda i: f"#{i} · {names_by_id[i]}",
     index=ids.index(current_id),
-    key="portfolios_active_selector",
+    key="cartera_page_active",
 )
 if selected_id != st.session_state.get("active_portfolio_id"):
     st.session_state["active_portfolio_id"] = selected_id
     set_active_portfolio(selected_id)
     st.toast(f"Cartera activa: {names_by_id[selected_id]}", icon="✅")
 else:
-    # Asegura que la tool knows aunque no haya cambio.
     set_active_portfolio(selected_id)
 
 active = pf_svc.get_portfolio(selected_id)
 totals = pf_service.get_portfolio_value(portfolio_id=selected_id)
 cash = pf_svc.cash_available(selected_id)
 
-st.divider()
-
 # -----------------------------------------------------------------------------
 # Tarjeta detalle de la cartera activa
 # -----------------------------------------------------------------------------
-st.subheader(f"📊 {active['name']}")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Cash inicial", fmt_money(active["initial_cash"], active["currency"]))
-col2.metric("Cash disponible", fmt_money(cash, active["currency"]))
-col3.metric("Valor actual", fmt_money(totals.get("total_value") or 0, active["currency"]))
-col4.metric(
-    "P&L total",
-    fmt_money(totals.get("total_pnl") or 0, active["currency"]),
-    delta=fmt_pct(totals.get("total_pnl_pct") or 0),
-)
+section_title(active["name"], subtitle=f"ID #{active['id']} · perfil {active['risk']}")
 
-st.caption(
-    f"**Riesgo:** {active['risk']}  ·  **Mercados:** {active['markets']}  ·  "
-    f"**Moneda:** {active['currency']}  ·  **Creada:** {active['created_at']}"
-)
+# Pill-card con metadatos compactos.
+notes_block = ""
 if active.get("notes"):
-    st.caption(f"📝 {active['notes']}")
+    notes_block = (
+        f"<div style='color:{COLOR_MUTED};font-size:13px;margin-top:10px;"
+        f"padding-top:10px;border-top:1px solid {COLOR_BORDER};'>"
+        f"{active['notes']}</div>"
+    )
 
-# Acciones destructivas: Reiniciar (todas) + Eliminar (excepto Default).
-# Patrón uniforme con confirmación de dos pasos para evitar clicks accidentales.
+st.markdown(
+    f"""
+    <div class='pill-card' style='padding:18px 20px;margin-bottom:14px;'>
+      <div style='display:flex;flex-wrap:wrap;gap:18px 28px;align-items:center;'>
+        <div>
+          <div style='color:{COLOR_DIM};font-size:11px;text-transform:uppercase;letter-spacing:0.1em;'>Riesgo</div>
+          <div style='color:{COLOR_TEXT};font-weight:600;font-size:14px;margin-top:2px;'>{active['risk']}</div>
+        </div>
+        <div>
+          <div style='color:{COLOR_DIM};font-size:11px;text-transform:uppercase;letter-spacing:0.1em;'>Mercados</div>
+          <div style='color:{COLOR_TEXT};font-weight:600;font-size:14px;margin-top:2px;'>{active['markets']}</div>
+        </div>
+        <div>
+          <div style='color:{COLOR_DIM};font-size:11px;text-transform:uppercase;letter-spacing:0.1em;'>Moneda</div>
+          <div style='color:{COLOR_TEXT};font-weight:600;font-size:14px;margin-top:2px;'>{active['currency']}</div>
+        </div>
+        <div>
+          <div style='color:{COLOR_DIM};font-size:11px;text-transform:uppercase;letter-spacing:0.1em;'>Creada</div>
+          <div style='color:{COLOR_TEXT};font-weight:600;font-size:14px;margin-top:2px;'>{active['created_at']}</div>
+        </div>
+      </div>
+      {notes_block}
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+stat_strip([
+    stat_tile("Cash inicial", fmt_money(active["initial_cash"], active["currency"])),
+    stat_tile("Cash disponible", fmt_money(cash, active["currency"])),
+    stat_tile("Valor actual", fmt_money(totals.get("total_value") or 0, active["currency"])),
+    stat_tile(
+        "P&L total",
+        fmt_money(totals.get("total_pnl") or 0, active["currency"]),
+        delta=totals.get("total_pnl_pct") or 0,
+    ),
+])
+
+# Acciones destructivas con confirmación de dos pasos.
 reset_key = f"confirm_reset_{active['id']}"
 del_key = f"confirm_delete_{active['id']}"
 
+st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
+
 if st.session_state.get(reset_key):
     st.warning(
-        f"¿Seguro que quieres **reiniciar {active['name']}**? Se borrarán "
+        f"⚠️ ¿Seguro que quieres **reiniciar {active['name']}**? Se borrarán "
         "todas sus posiciones, transacciones y watchlist. La cartera "
         f"vuelve a {fmt_money(active['initial_cash'], active['currency'])} de cash. "
         "Riesgo y mercados se mantienen."
@@ -108,7 +149,7 @@ if st.session_state.get(reset_key):
         st.rerun()
 elif st.session_state.get(del_key):
     st.warning(
-        f"¿Seguro que quieres **eliminar {active['name']}**? "
+        f"⚠️ ¿Seguro que quieres **eliminar {active['name']}**? "
         "Se borrarán sus posiciones, transacciones y watchlist."
     )
     cdel1, cdel2 = st.columns(2)
@@ -126,28 +167,27 @@ elif st.session_state.get(del_key):
         st.session_state[del_key] = False
         st.rerun()
 else:
-    # Estado normal: dos botones lado-a-lado. La Default (id=1) NO muestra eliminar.
     if active["id"] == 1:
         ca1, _ca2 = st.columns([1, 3])
-        if ca1.button("🔄 Reiniciar cartera", key=f"btn_reset_{active['id']}"):
+        if ca1.button("Reiniciar cartera", key=f"btn_reset_{active['id']}"):
             st.session_state[reset_key] = True
             st.rerun()
         st.caption("La cartera Default (id=1) puede reiniciarse pero no eliminarse.")
     else:
         ca1, ca2, _ca3 = st.columns([1, 1, 2])
-        if ca1.button("🔄 Reiniciar cartera", key=f"btn_reset_{active['id']}"):
+        if ca1.button("Reiniciar cartera", key=f"btn_reset_{active['id']}"):
             st.session_state[reset_key] = True
             st.rerun()
-        if ca2.button("🗑️ Eliminar cartera", key=f"btn_delete_{active['id']}"):
+        if ca2.button("Eliminar cartera", key=f"btn_delete_{active['id']}"):
             st.session_state[del_key] = True
             st.rerun()
-
-st.divider()
 
 # -----------------------------------------------------------------------------
 # Formulario nueva cartera
 # -----------------------------------------------------------------------------
-with st.expander("➕ Nueva cartera"):
+section_title("Crear cartera", subtitle="Define el capital inicial, el perfil de riesgo y los mercados objetivo.")
+
+with st.expander("Nueva cartera"):
     with st.form("new_portfolio_form", clear_on_submit=True):
         name = st.text_input("Nombre", help="Debe ser único.")
         initial_cash = st.number_input(
@@ -188,24 +228,77 @@ with st.expander("➕ Nueva cartera"):
             except Exception as e:
                 st.error(f"No se pudo crear: {e}")
 
-st.divider()
+# -----------------------------------------------------------------------------
+# Grid con todas las carteras
+# -----------------------------------------------------------------------------
+section_title("Todas las carteras", subtitle=f"{len(all_portfolios)} carteras en total.")
 
-# -----------------------------------------------------------------------------
-# Tabla con todas las carteras
-# -----------------------------------------------------------------------------
-st.subheader("📋 Todas las carteras")
-rows = []
-for p in all_portfolios:
-    rows.append({
-        "ID": p["id"],
-        "Nombre": p["name"],
-        "Cash inicial": round(p["initial_cash"], 2),
-        "Cash disponible": round(pf_svc.cash_available(p["id"]), 2),
-        "Riesgo": p["risk"],
-        "Mercados": p["markets"],
-        "Moneda": p["currency"],
-        "Posiciones": pf_svc.count_positions(p["id"]),
-        "Creada": p["created_at"],
-    })
-df = pd.DataFrame(rows)
-st.dataframe(df, use_container_width=True, hide_index=True)
+
+def _portfolio_card_html(p: dict, is_active: bool) -> str:
+    cash_avail = pf_svc.cash_available(p["id"])
+    n_pos = pf_svc.count_positions(p["id"])
+    border = COLOR_ACCENT if is_active else COLOR_BORDER
+    badge_active = (
+        f"<span style='font-family:Inter,sans-serif;font-size:10px;font-weight:700;"
+        f"color:{COLOR_ACCENT};background:{COLOR_ACCENT}1A;border:1px solid {COLOR_ACCENT}40;"
+        f"padding:2px 8px;border-radius:4px;letter-spacing:0.06em;text-transform:uppercase;'>activa</span>"
+        if is_active else ""
+    )
+    risk_chip = (
+        f"<span style='font-family:Inter,sans-serif;font-size:11px;font-weight:600;"
+        f"color:{COLOR_MUTED};background:{COLOR_BORDER};"
+        f"padding:2px 8px;border-radius:4px;'>{p['risk']}</span>"
+    )
+    id_chip = (
+        f"<span style='font-family:JetBrains Mono,monospace;font-size:11px;font-weight:600;"
+        f"color:{COLOR_DIM};'>#{p['id']}</span>"
+    )
+
+    def _mini(label: str, value: str) -> str:
+        return (
+            f"<div style='flex:1;'>"
+            f"<div style='color:{COLOR_DIM};font-size:10px;text-transform:uppercase;"
+            f"letter-spacing:0.1em;margin-bottom:4px;'>{label}</div>"
+            f"<div style='color:{COLOR_TEXT};font-family:JetBrains Mono,monospace;"
+            f"font-size:14px;font-weight:600;'>{value}</div>"
+            f"</div>"
+        )
+
+    mini_stats = (
+        f"<div style='display:flex;gap:18px;margin-top:14px;'>"
+        f"{_mini('Cash inicial', fmt_money(p['initial_cash'], p['currency']))}"
+        f"{_mini('Disponible', fmt_money(cash_avail, p['currency']))}"
+        f"{_mini('Posiciones', str(n_pos))}"
+        f"</div>"
+    )
+
+    return (
+        f"<div style='background:{COLOR_SURFACE};border:1px solid {border};"
+        f"border-radius:14px;padding:18px 20px;height:100%;'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:10px;'>"
+        f"<div>"
+        f"<div style='color:{COLOR_TEXT};font-size:18px;font-weight:700;letter-spacing:-0.01em;'>"
+        f"{p['name']}</div>"
+        f"<div style='display:flex;gap:8px;align-items:center;margin-top:6px;'>"
+        f"{id_chip}{risk_chip}"
+        f"</div>"
+        f"</div>"
+        f"{badge_active}"
+        f"</div>"
+        f"{mini_stats}"
+        f"<div style='margin-top:14px;color:{COLOR_MUTED};font-size:12px;'>"
+        f"Mercados: <span style='color:{COLOR_TEXT};'>{p['markets']}</span> · "
+        f"Moneda: <span style='color:{COLOR_TEXT};'>{p['currency']}</span>"
+        f"</div>"
+        f"</div>"
+    )
+
+
+# Pinta de 2 en 2
+for i in range(0, len(all_portfolios), 2):
+    cols = st.columns(2)
+    for col, p in zip(cols, all_portfolios[i:i + 2]):
+        col.markdown(
+            _portfolio_card_html(p, is_active=(p["id"] == selected_id)),
+            unsafe_allow_html=True,
+        )

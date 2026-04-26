@@ -26,6 +26,14 @@ Esta carpeta contiene el corpus de educación financiera que el agente usa para 
 | `commodities_cftc_before_investing_pools.pdf` | CFTC | "Before Investing in Commodity Pools" — pools de materias primas, registro CPO/CTA, disclosures, riesgos. | <https://www.cftc.gov/sites/default/files/2020-09/Before_Investing_in_Commodity_Pools%20V508%2003102020.pdf> |
 | `crypto_etps_cftc_bitcoin_futures_etf.pdf` | CFTC | "What is a Bitcoin Futures ETF?" — diferencia spot vs futuros, contango, roll premium, commodity pool. | <https://www.cftc.gov/sites/default/files/2022-02/BitcoinETF.pdf> |
 | `crypto_etps_esma_warning.pdf` | ESMA | Warning on Crypto-Assets (Dec 2024) — riesgos, MiCA, custodia, ausencia de fondo de garantía. | <https://www.esma.europa.eu/sites/default/files/2024-12/ESMA35-1872330276-1971_Warning_on_crypto-assets.pdf> |
+| `tecnico_fundamental_cnmv_como_invertir_en_bolsa.pdf` | CNMV (vía BME) | Guía CNMV "Cómo invertir en bolsa" — cómo elegir valores, análisis técnico básico (gráficos, tendencias, soportes/resistencias) y análisis fundamental (ratios, valoración). | <https://www.bolsasymercados.es/bme-exchange/docs/docsSubidos/Para-inversores/Guias-del-inversor/CNMV-Como-invertir-en-Bolsa.pdf> |
+| `fundamental_sec_how_to_read_a_10k.pdf` | SEC / OIEA | Investor Bulletin "How to Read a 10-K" — estructura del 10-K, MD&A, estados financieros, ratios fundamentales (P/E, current ratio, operating margin). | <https://www.sec.gov/files/reada10k.pdf> |
+| `cartera_sec_beginners_guide_asset_allocation.pdf` | SEC / Investor.gov | "Beginners' Guide to Asset Allocation, Diversification, and Rebalancing" — clases de activos, correlación, MPT básico, rebalanceo. | <https://www.investor.gov/sites/investorgov/files/2019-02/Beginners-Guide-to-Asset-Allocation.pdf> |
+| `cartera_sec_diversifying_risk_building_blocks.pdf` | SEC / Office of the Advocate for Small Business Capital Formation | "Diversifying Risk — Capital Raising Building Blocks" — diversificación, correlación entre activos, riesgo idiosincrásico vs sistémico. | <https://www.sec.gov/files/diversify-building-blocks.pdf> |
+| `cartera_cnmv_plan_educacion_financiera_22_25.pdf` | CNMV / Banco de España / MAETD | Plan de Educación Financiera 2022-2025 — objetivos, marco conceptual, planificación financiera, perfil del inversor. | <https://www.cnmv.es/DocPortal/Publicaciones/PlanEducacion/Planeducacionfinanciera_22_25es.pdf> |
+| `riesgo_cnmv_conozca_su_perfil_inversor.pdf` | CNMV (vía BME) | Guía CNMV "Conozca su perfil de inversor" — tolerancia al riesgo, horizonte temporal, capacidad financiera, idoneidad MiFID. | <https://www.bolsasymercados.es/bme-exchange/docs/docsSubidos/Para-inversores/Guias-del-inversor/CNMV-Conozca-su-perfil-como-inversor.pdf> |
+| `sentimiento_sec_social_media_and_investing_fraud.pdf` | SEC / OIEA | Investor Alert "Social Media and Investing — Avoiding Fraud" — cómo distinguir información fiable de rumores en redes y foros. | <https://www.sec.gov/investor/alerts/socialmediaandfraud.pdf> |
+| `sentimiento_sec_social_media_stock_tip_scams.pdf` | SEC / Enforcement | Investor Alert "Social Media and Stock Tip Scams" (2024) — pump-and-dump, ramp-and-dump, falsos grupos de inversión, sesgo de manada. | <https://www.sec.gov/files/litigation/litreleases/2024/26187-investor-alert-investor.pdf> |
 
 Los PDFs de la CNMV están en **español**; los de la SEC, CFTC y ESMA en **inglés**. El RAG mezcla ambos idiomas sin problema porque el embedding `nomic-embed-text` es multilingüe.
 
@@ -43,6 +51,11 @@ Los PDFs de la CNMV están en **español**; los de la SEC, CFTC y ESMA en **ingl
 - **ETPs apalancados / inversos**: SEC IAC Recommendation + SEC DERA Economics Note + CNMV Fondos Cotizados (sección ETF apalancados).
 - **Commodities y commodity pools**: CFTC Before Investing in Commodity Pools.
 - **Crypto-ETPs (spot vs futuros)**: CFTC Bitcoin Futures ETF + ESMA Warning on Crypto-Assets.
+- **Análisis técnico básico**: CNMV "Cómo invertir en bolsa" (gráficos, tendencias, soportes/resistencias).
+- **Análisis fundamental y valoración**: CNMV "Cómo invertir en bolsa" + SEC "How to Read a 10-K" (P/E, current ratio, operating margin, MD&A) + Manual universitarios CNMV.
+- **Construcción de cartera y diversificación**: SEC "Beginners' Guide to Asset Allocation, Diversification, and Rebalancing" + SEC "Diversifying Risk — Building Blocks" + CNMV Plan de Educación Financiera 2022-2025.
+- **Gestión de riesgo y perfil del inversor**: CNMV "Conozca su perfil de inversor" (tolerancia, horizonte, capacidad financiera, MiFID).
+- **Interpretación de noticias y sentimiento**: SEC "Social Media and Investing — Avoiding Fraud" + SEC "Social Media and Stock Tip Scams" (rumores, pump-and-dump, falsos grupos).
 
 ## Añadir más documentos (opcional)
 

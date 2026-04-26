@@ -91,7 +91,14 @@
       "Bash(.venv/Scripts/python.exe -m py_compile src/tools/universes.py src/tools/market_tools.py src/tools/advisor_tool.py)",
       "Bash(.venv/Scripts/python.exe -m py_compile pages/4_Mercado.py src/tools/analysis_tools.py)",
       "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m py_compile src/agent/agent_builder.py src/agent/prompts.py)",
-      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m py_compile src/services/db.py src/services/watchlist.py src/ui/portfolio_charts.py src/ui/watchlist_view.py pages/2_Mi_Cartera.py)"
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe -m py_compile src/services/db.py src/services/watchlist.py src/ui/portfolio_charts.py src/ui/watchlist_view.py pages/2_Mi_Cartera.py)",
+      "Bash(python -m pytest tests/ -q)",
+      "WebFetch(domain:www2.uned.es)",
+      "WebFetch(domain:www.investor.gov)",
+      "WebFetch(domain:www.sec.gov)",
+      "Bash(awk '{print $NF, $5}')",
+      "Bash(grep -c \"\\\\.pdf$\")",
+      "Bash(python *)"
     ]
   }
 }

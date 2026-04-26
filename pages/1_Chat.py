@@ -7,16 +7,11 @@ Patrón oficial de Streamlit para chats:
        - invocar al agente,
        - append + render inline de la respuesta del asistente.
     3) En el siguiente rerun, todo eso ya forma parte del historial y se
-       redibuja por el loop. No hay doble render porque la nueva entrada se
-       procesa solo en el run en que se recibe.
+       redibuja por el loop.
 
-Notas didácticas:
-- No usamos ``placeholder = st.empty()`` para evitar parpadeos cuando el
-  agente tarda; ``st.chat_message`` ya gestiona la burbuja y el spinner
-  vive dentro de ella.
-- ``render_suggestions_panel`` va al final del script para que el catálogo
-  no rompa el flujo conversacional. Como el ``st.chat_input`` se ancla al
-  fondo de la ventana, el panel queda justo encima del input.
+Layout dark fintech: dos columnas (chat + panel lateral con cartera activa,
+sugerencias rápidas y guía de uso). El catálogo completo de prompts vive al
+final, plegado en un expander para no fragmentar el flujo conversacional.
 """
 import streamlit as st
 
@@ -24,61 +19,30 @@ from src.agent.singleton import get_agent, ensure_session_id
 from src.services import portfolios as pf_svc
 from src.tools.portfolio_tools import set_active_portfolio
 from src.ui.chat_suggestions import render_suggestions_panel
+from src.ui.components import (
+    COLOR_BORDER,
+    COLOR_DIM,
+    COLOR_MUTED,
+    COLOR_SURFACE,
+    COLOR_TEXT,
+    hero,
+    inject_app_styles,
+    render_topbar,
+    section_title,
+)
 
-st.set_page_config(page_title="Chat · Bot de Inversiones", page_icon="💬")
-st.title("💬 Chat con el agente")
+st.set_page_config(page_title="Chat · Bot de Inversiones", page_icon="💬", layout="wide")
+inject_app_styles()
+render_topbar(active="Chat")
+
+hero(
+    "Chat",
+    "Pregúntale al agente sobre precios, noticias, conceptos o tu cartera.",
+)
 
 agent = get_agent()
 session_id = ensure_session_id()
 
-
-# -----------------------------------------------------------------------------
-# Selector de cartera activa con CHIPS (no chat). El usuario puede cambiar
-# de cartera sin salir del chat: las próximas tools (portfolio_buy, etc.)
-# operarán sobre la cartera marcada aquí.
-# -----------------------------------------------------------------------------
-def _render_portfolio_chips() -> None:
-    """Pinta una fila de chips/botones, uno por cartera. Resalta la activa."""
-    try:
-        portfolios_list = pf_svc.list_portfolios()
-    except Exception:
-        portfolios_list = []
-    if not portfolios_list:
-        return
-
-    ids = [p["id"] for p in portfolios_list]
-    current = st.session_state.get("active_portfolio_id", ids[0])
-    if current not in ids:
-        current = ids[0]
-        st.session_state["active_portfolio_id"] = current
-    set_active_portfolio(current)
-
-    st.caption("Cartera activa")
-    # Una columna por cartera, con un máximo razonable por fila para no romper
-    # el layout si el usuario tiene muchas carteras.
-    n = len(portfolios_list)
-    per_row = min(n, 5)
-    cols = st.columns(per_row)
-    for idx, p in enumerate(portfolios_list):
-        col = cols[idx % per_row]
-        is_active = p["id"] == current
-        # Chip activo se renderiza como botón primary; los demás secondary.
-        label = f"{'✅ ' if is_active else ''}#{p['id']} · {p['name']}"
-        if col.button(
-            label,
-            key=f"chat_portfolio_chip_{p['id']}",
-            type="primary" if is_active else "secondary",
-            use_container_width=True,
-            help=f"Riesgo: {p['risk']} · Mercados: {p['markets']}",
-        ):
-            if not is_active:
-                st.session_state["active_portfolio_id"] = p["id"]
-                set_active_portfolio(p["id"])
-                st.toast(f"Cartera activa: {p['name']}", icon="🧺")
-                st.rerun()
-
-
-_render_portfolio_chips()
 
 # Historial visual del chat (independiente de la memoria interna del agente,
 # que vive en RunnableWithMessageHistory indexada por session_id).
@@ -103,6 +67,11 @@ def _invoke_agent(user_input: str) -> str:
         )
 
 
+def _escape_dollars(text: str) -> str:
+    # Why: Streamlit interpreta `$...$` como LaTeX y rompe cifras como "$10 000".
+    return text.replace("$", "\\$") if isinstance(text, str) else text
+
+
 def _handle_user_message(user_input: str) -> None:
     """Procesa un input nuevo: lo añade al historial, lo pinta inline,
     invoca al agente y pinta la respuesta.
@@ -121,21 +90,103 @@ def _handle_user_message(user_input: str) -> None:
     with st.chat_message("assistant"):
         with st.spinner("Pensando..."):
             answer = _invoke_agent(user_input)
-        st.markdown(answer)
+        st.markdown(_escape_dollars(answer))
     st.session_state.messages.append({"role": "assistant", "content": answer})
 
 
-# 1) Render del historial completo.
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+# ---- Layout: chat (izda) + panel (dcha) -----------------------------------
+chat_col, side_col = st.columns([3, 1])
 
-# 2) Consumir prompts pendientes (procedentes del Home, Mercado, Noticias o
-#    de los chips de sugerencias). Solo uno por rerun: priorizamos
-#    ``pending_prompt`` (uso interno) sobre ``prefill_prompt`` (UI).
-pending = st.session_state.pop("pending_prompt", None) or st.session_state.pop("prefill_prompt", None)
-if pending:
-    _handle_user_message(pending)
+with side_col:
+    # --- Selector de cartera activa (selectbox compacto) -------------------
+    st.markdown(
+        f"<div style='font-size:11px;text-transform:uppercase;letter-spacing:0.1em;"
+        f"color:{COLOR_MUTED};font-weight:500;margin-bottom:8px;'>Cartera activa</div>",
+        unsafe_allow_html=True,
+    )
+    try:
+        portfolios_list = pf_svc.list_portfolios()
+    except Exception:
+        portfolios_list = []
+    if portfolios_list:
+        ids = [p["id"] for p in portfolios_list]
+        names_by_id = {p["id"]: p["name"] for p in portfolios_list}
+        current = st.session_state.get("active_portfolio_id", ids[0])
+        if current not in ids:
+            current = ids[0]
+        sel = st.selectbox(
+            "Cartera activa",
+            options=ids,
+            format_func=lambda i: f"#{i} · {names_by_id[i]}",
+            index=ids.index(current),
+            key="chat_active_portfolio_selector",
+            label_visibility="collapsed",
+        )
+        if sel != st.session_state.get("active_portfolio_id"):
+            st.session_state["active_portfolio_id"] = sel
+            set_active_portfolio(sel)
+            st.toast(f"Cartera activa: {names_by_id[sel]}", icon="🧺")
+            st.rerun()
+        else:
+            st.session_state["active_portfolio_id"] = sel
+            set_active_portfolio(sel)
+    else:
+        st.caption("No hay carteras disponibles.")
+
+    # --- Sugerencias rápidas -----------------------------------------------
+    st.markdown(
+        f"<div style='font-size:11px;text-transform:uppercase;letter-spacing:0.1em;"
+        f"color:{COLOR_MUTED};font-weight:500;margin:18px 0 8px 0;'>Sugerencias</div>",
+        unsafe_allow_html=True,
+    )
+    quick_prompts = [
+        "¿Cómo está AAPL?",
+        "Resumen de mi cartera",
+        "Noticias de NVDA",
+        "Explícame qué es un ETF",
+    ]
+    for qp in quick_prompts:
+        if st.button(qp, key=f"chat_quick_{qp}", use_container_width=True):
+            st.session_state["pending_prompt"] = qp
+            st.rerun()
+
+    # --- Cómo usar ---------------------------------------------------------
+    st.markdown(
+        f"""
+        <div style="background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};
+                    border-radius:12px;padding:14px 16px;margin-top:18px;">
+          <div style='font-size:11px;text-transform:uppercase;letter-spacing:0.1em;
+                      color:{COLOR_MUTED};font-weight:500;margin-bottom:8px;'>Cómo usar</div>
+          <ul style='margin:0;padding-left:18px;color:{COLOR_TEXT};font-size:12px;
+                     line-height:1.6;'>
+            <li>Pide cotizaciones: <em>"precio de TSLA"</em></li>
+            <li>Opera tu cartera: <em>"compra 5 NVDA"</em></li>
+            <li>Pide explicaciones: <em>"qué es un ETF"</em></li>
+            <li>Compara: <em>"AAPL vs MSFT"</em></li>
+          </ul>
+          <div style='color:{COLOR_DIM};font-size:11px;margin-top:10px;'>
+            La cartera de la izquierda es la que usarán las operaciones.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with chat_col:
+    # 1) Render del historial completo.
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            content = msg["content"]
+            if msg["role"] == "assistant":
+                content = _escape_dollars(content)
+            st.markdown(content)
+
+    # 2) Consumir prompts pendientes (procedentes del Home, Mercado, Noticias o
+    #    de los chips de sugerencias). Solo uno por rerun: priorizamos
+    #    ``pending_prompt`` (uso interno) sobre ``prefill_prompt`` (UI).
+    pending = st.session_state.pop("pending_prompt", None) or st.session_state.pop("prefill_prompt", None)
+    if pending:
+        _handle_user_message(pending)
 
 # 3) Input del usuario. ``st.chat_input`` se ancla al fondo de la ventana
 #    independientemente de su posición en el script.
@@ -145,4 +196,5 @@ if user_input:
 
 # 4) Catálogo de sugerencias (60+ prompts). Va al final para no fragmentar
 #    el flujo: el expander queda plegado por defecto cuando ya hay charla.
+section_title("Catálogo de prompts", "Explora todo lo que el agente sabe hacer")
 render_suggestions_panel(prefill_state_key="prefill_prompt")

@@ -20,6 +20,10 @@ ERR_ICON = "❌"
 # selector. Si es None, las tools caen al id 1 (Default).
 _ACTIVE_PORTFOLIO_ID: int | None = None
 
+# Why: cuando portfolio_buy detecta un posible duplicado avisa SIN ejecutar;
+# si el agente reintenta inmediatamente con los mismos args, dejamos pasar.
+_LAST_DUPLICATE_WARNING: tuple[int, str, float, float] | None = None
+
 
 def set_active_portfolio(portfolio_id: int) -> None:
     """La UI llama a esto cuando el usuario cambia de cartera activa."""
@@ -46,9 +50,27 @@ def portfolio_buy(ticker: str, qty: float) -> str:
     Opera sobre la cartera ACTIVA del usuario.
     Usa esta tool cuando el usuario pida comprar, adquirir o añadir acciones.
     Antes de llamarla, avisa brevemente al usuario de lo que vas a hacer."""
+    global _LAST_DUPLICATE_WARNING
     try:
         pid = get_active_portfolio_id()
-        r = portfolio.buy(ticker, float(qty), portfolio_id=pid)
+        symbol = str(ticker).strip().upper()
+        qty_f = float(qty)
+
+        # Detección de duplicado reciente (<30s, mismo ticker/qty, precio ±1%).
+        price_now = portfolio._current_price(symbol)
+        if price_now is not None:
+            dup = portfolio.recent_duplicate_buy(symbol, qty_f, price_now, portfolio_id=pid)
+            warned_key = (pid, symbol, qty_f, round(price_now, 2))
+            if dup is not None and _LAST_DUPLICATE_WARNING != warned_key:
+                _LAST_DUPLICATE_WARNING = warned_key
+                return (
+                    f"⚠️ Posible duplicado: ya hiciste esta misma compra hace "
+                    f"{dup['seconds_ago']}s ({qty_f:g} {symbol} a ${dup['price']:.2f}). "
+                    f"Confirma con \"sí, repite\" si era intencional."
+                )
+
+        r = portfolio.buy(ticker, qty_f, portfolio_id=pid)
+        _LAST_DUPLICATE_WARNING = None
         return (
             f"{OK_ICON} Compra ejecutada{_active_name_suffix()}: {r['qty']:g} acciones de {r['ticker']} "
             f"a ${r['price']:.2f}. "

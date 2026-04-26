@@ -346,14 +346,21 @@ def build_portfolio_pnl_figure(df: pd.DataFrame, currency: str = "USD") -> go.Fi
                 hovertemplate=f"%{{x|%Y-%m-%d}}<br>{bench_label}: %{{y:,.2f}}<extra></extra>",
             )
         )
+    from src.ui.components import COLOR_BG, COLOR_BORDER, COLOR_MUTED, COLOR_TEXT
     fig.update_layout(
-        title=f"Evolución del patrimonio ({currency})",
+        title=dict(text=f"Evolución del patrimonio ({currency})", font=dict(color=COLOR_TEXT, size=15)),
         xaxis_title="Fecha",
         yaxis_title=f"Valor ({currency})",
         template="plotly_dark",
+        paper_bgcolor=COLOR_BG,
+        plot_bgcolor=COLOR_BG,
+        font=dict(family="Inter, system-ui, sans-serif", color=COLOR_TEXT, size=12),
+        margin=dict(l=12, r=12, t=44, b=12),
+        xaxis=dict(showgrid=False, linecolor=COLOR_BORDER, tickcolor=COLOR_BORDER, color=COLOR_MUTED),
+        yaxis=dict(gridcolor=COLOR_BORDER, zerolinecolor=COLOR_BORDER, linecolor=COLOR_BORDER, color=COLOR_MUTED),
         height=450,
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color=COLOR_MUTED)),
     )
     return fig
 

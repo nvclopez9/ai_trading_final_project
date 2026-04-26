@@ -1,29 +1,63 @@
-"""Página Mercado: detalle de un ticker (hero + chart + stats + noticias + explícame + comparar + análisis + compra).
+"""Página Mercado: detalle de un ticker.
 
-Feature 2: incluye watchlist/populares, tab Comparar (normalizado t0=100),
-tab Análisis (resumen fundamental rápido vía agente), y botón rápido de
-compra/venta inline sobre la cartera activa.
+Layout estilo Robinhood / pelositracker:
+- Hero de página + selector ticker.
+- Hero del ticker (nombre + precio + delta) en card grande.
+- Strip de KPIs (volumen, market cap, P/E, apertura, anterior cierre).
+- Chart de precio con selector de periodo en píldoras.
+- Compra rápida inline.
+- Tabs: Resumen, Comparar, Análisis, Noticias.
+
+Toda la lógica de negocio (yfinance, agente, portfolio_buy/sell, switch_page,
+session_state) se preserva del fichero original.
 """
+from __future__ import annotations
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import yfinance as yf
 
-from src.agent.singleton import get_agent, ensure_session_id
+from src.agent.singleton import ensure_session_id, get_agent
+from src.services import portfolio as pf_service
 from src.services import portfolios as pf_svc
 from src.tools.portfolio_tools import set_active_portfolio
-from src.services import portfolio as pf_service
 from src.ui.charts import price_history_chart
-from src.ui.news_view import render_news_panel
 from src.ui.components import (
+    COLOR_ACCENT,
+    COLOR_BORDER,
+    COLOR_DIM,
+    COLOR_DOWN,
+    COLOR_MUTED,
+    COLOR_SURFACE,
+    COLOR_TEXT,
+    COLOR_UP,
+    color_for_delta,
+    delta_badge,
+    empty_state,
+    fmt_market_cap,
     fmt_money,
     fmt_pct,
-    fmt_market_cap,
-    color_for_delta,
+    hero,
+    inject_app_styles,
+    news_card,
+    render_topbar,
+    section_title,
+    stat_strip,
+    stat_tile,
 )
+from src.ui.news_view import render_news_panel
 
-st.set_page_config(page_title="Mercado · Bot de Inversiones", page_icon="📈")
-st.title("📈 Detalle de ticker")
+
+# ─── Setup ──────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Mercado · Bot de Inversiones", page_icon="M")
+inject_app_styles()
+render_topbar(active="Mercado")
+
+hero(
+    "Mercado",
+    "Precio en vivo, fundamentales, noticias y compra rápida sobre cualquier ticker.",
+)
 
 agent = get_agent()
 session_id = ensure_session_id()
@@ -40,7 +74,17 @@ POPULAR_TICKERS = [
     "VWCE.DE", "IWDA.AS",
 ]
 
-col_pop, col_in = st.columns([1, 2])
+
+# ─── Selector de ticker ─────────────────────────────────────────────────────
+default_ticker = st.session_state.get("active_ticker", "AAPL")
+
+col_in, col_pop, col_btn = st.columns([2, 2, 1])
+with col_in:
+    ticker_input = st.text_input(
+        "Ticker",
+        value=default_ticker,
+        help="Símbolo en mayúsculas, p. ej. AAPL, MSFT, TSLA, SAN.MC",
+    )
 with col_pop:
     picked = st.selectbox(
         "Populares / watchlist",
@@ -48,26 +92,36 @@ with col_pop:
         index=0,
         key="market_popular_pick",
     )
-    if picked and picked != "(elige uno)":
-        st.session_state["active_ticker"] = picked
+with col_btn:
+    st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+    load_clicked = st.button("Cargar", type="primary", use_container_width=True)
 
-default_ticker = st.session_state.get("active_ticker", "AAPL")
-with col_in:
-    ticker = st.text_input(
-        "Ticker",
-        value=default_ticker,
-        help="Símbolo en mayúsculas, p. ej. AAPL, MSFT, TSLA, SAN.MC",
-    ).strip().upper()
-if ticker:
-    st.session_state["active_ticker"] = ticker
+# Resolución del ticker activo.
+if picked and picked != "(elige uno)":
+    st.session_state["active_ticker"] = picked
+    ticker = picked
+else:
+    ticker = (ticker_input or "").strip().upper()
+    if ticker:
+        st.session_state["active_ticker"] = ticker
+
+if not ticker:
+    empty_state(
+        "Sin ticker",
+        "Introduce un símbolo arriba para ver su detalle (precio, fundamentales y noticias).",
+        icon="?",
+    )
+    st.stop()
 
 
+# ─── Helpers de datos (cache) ───────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner=False)
 def _quote(symbol: str) -> dict:
     t = yf.Ticker(symbol)
     info = t.info or {}
     price = info.get("regularMarketPrice") or info.get("currentPrice")
     prev = info.get("regularMarketPreviousClose") or info.get("previousClose")
+    open_ = info.get("regularMarketOpen") or info.get("open")
     if price is None or prev is None:
         hist = t.history(period="5d")
         if not hist.empty:
@@ -79,6 +133,7 @@ def _quote(symbol: str) -> dict:
         "currency": info.get("currency") or "USD",
         "price": price,
         "prev_close": prev,
+        "open": open_,
         "market_cap": info.get("marketCap"),
         "pe": info.get("trailingPE"),
         "eps": info.get("trailingEps"),
@@ -104,10 +159,6 @@ def _history_close(symbol: str, period: str) -> pd.Series | None:
         return None
 
 
-if not ticker:
-    st.info("Introduce un ticker para ver su detalle.")
-    st.stop()
-
 with st.spinner(f"Cargando {ticker}..."):
     try:
         q = _quote(ticker)
@@ -119,32 +170,80 @@ price = q["price"]
 prev = q["prev_close"]
 delta_abs = (price - prev) if (price is not None and prev is not None) else None
 delta_pct = ((delta_abs / prev) * 100) if (delta_abs is not None and prev) else None
+currency = q["currency"]
 
-color = color_for_delta(delta_abs)
-arrow = "▲" if (delta_abs or 0) > 0 else ("▼" if (delta_abs or 0) < 0 else "·")
+
+# ─── Hero del ticker ────────────────────────────────────────────────────────
+_MONO = "'JetBrains Mono','SF Mono','Menlo','Roboto Mono','Consolas',monospace"
+delta_color = color_for_delta(delta_abs)
+delta_abs_str = fmt_money(delta_abs, currency) if delta_abs is not None else "—"
+big_delta_badge = delta_badge(delta_pct, big=True) if delta_pct is not None else ""
+
 st.markdown(
     f"""
-    <div style="line-height:1.2;">
-      <div style="font-size:1rem;color:#9AA0A6;">{q['name']} ({ticker})</div>
-      <div style="font-size:2.5rem;font-weight:700;">{fmt_money(price, q['currency'])}</div>
-      <div style="font-size:1.1rem;color:{color};">
-        {arrow} {fmt_money(delta_abs, q['currency']) if delta_abs is not None else '—'}
-        ({fmt_pct(delta_pct) if delta_pct is not None else '—'})
+    <div class="pill-card" style="padding:24px;margin-bottom:18px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+        <div>
+          <div style="font-family:{_MONO};font-size:2rem;font-weight:700;
+                      letter-spacing:0.6px;color:{COLOR_TEXT};line-height:1.05;">
+            {ticker}
+          </div>
+          <div style="color:{COLOR_MUTED};font-size:14px;margin-top:6px;max-width:520px;">
+            {q['name']}
+          </div>
+          <div style="color:{COLOR_DIM};font-size:12px;margin-top:8px;">
+            {q['sector'] or '—'} · {q['industry'] or '—'}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:{_MONO};font-size:2.5rem;font-weight:700;
+                      color:{COLOR_TEXT};letter-spacing:-0.01em;line-height:1.05;">
+            {fmt_money(price, currency)}
+          </div>
+          <div style="margin-top:10px;display:flex;gap:10px;justify-content:flex-end;align-items:center;">
+            <span style="color:{delta_color};font-family:{_MONO};font-size:14px;font-weight:600;">
+              {delta_abs_str}
+            </span>
+            {big_delta_badge}
+          </div>
+        </div>
       </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-st.divider()
+# Strip de KPIs.
+stat_strip([
+    stat_tile("Volumen", fmt_market_cap(q["volume"]) if q["volume"] else "—"),
+    stat_tile("Market Cap", fmt_market_cap(q["market_cap"])),
+    stat_tile("P/E", f"{q['pe']:.2f}" if q["pe"] else "—"),
+    stat_tile("Apertura", fmt_money(q["open"], currency) if q["open"] else "—"),
+    stat_tile("Anterior cierre", fmt_money(prev, currency) if prev else "—"),
+])
 
-period = st.radio(
-    "Periodo",
-    options=["1mo", "3mo", "6mo", "1y", "5y"],
-    index=2,
-    horizontal=True,
-    key="chart_period",
-)
+
+# ─── Chart de precio + selector de periodo en píldoras ──────────────────────
+section_title("Histórico", f"Evolución del precio de {ticker}.")
+
+PERIODS = ["1mo", "3mo", "6mo", "1y", "5y"]
+if "chart_period" not in st.session_state:
+    st.session_state["chart_period"] = "6mo"
+
+period_cols = st.columns(len(PERIODS))
+for i, p in enumerate(PERIODS):
+    is_active = st.session_state["chart_period"] == p
+    with period_cols[i]:
+        if st.button(
+            p,
+            key=f"period_btn_{p}",
+            type="primary" if is_active else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state["chart_period"] = p
+            st.rerun()
+
+period = st.session_state["chart_period"]
 
 with st.spinner("Cargando gráfico..."):
     fig = price_history_chart(ticker, period)
@@ -153,44 +252,112 @@ if fig is None:
 else:
     st.plotly_chart(fig, use_container_width=True)
 
-# Tabs ampliadas: Stats, News, Explícame, Comparar, Análisis, Comprar,
-# Fundamentales (ratios estructurados), Comparador (tabla métrica multi-ticker).
-(
-    tab_stats, tab_news, tab_explain, tab_compare, tab_analyze, tab_trade,
-    tab_fund, tab_cmpx,
-) = st.tabs([
-    "📊 Estadísticas", "📰 Noticias", "💡 Explícame",
-    "📈 Comparar", "🧠 Análisis", "⭐ Añadir a cartera",
-    "📑 Fundamentales", "🔍 Comparador",
+
+# ─── Compra rápida inline ───────────────────────────────────────────────────
+section_title("Compra rápida", "Operación simulada sobre la cartera activa.")
+
+_active = pf_svc.get_portfolio(_active_pid)
+if _active:
+    cash_avail = pf_svc.cash_available(_active["id"])
+    st.markdown(
+        f"<div style='color:{COLOR_MUTED};font-size:13px;margin-bottom:10px;'>"
+        f"Cartera activa: <b style='color:{COLOR_TEXT};'>{_active['name']}</b> · "
+        f"Cash disponible: <b style='color:{COLOR_TEXT};'>"
+        f"{fmt_money(cash_avail, _active['currency'])}</b>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+with st.container():
+    st.markdown('<div class="pill-card" style="padding:20px;">', unsafe_allow_html=True)
+    qty_col, buy_col, sell_col = st.columns([2, 1, 1])
+    with qty_col:
+        trade_qty = st.number_input(
+            "Cantidad",
+            min_value=0.0001,
+            step=1.0,
+            value=1.0,
+            key=f"trade_qty_{ticker}",
+        )
+    with buy_col:
+        st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+        buy_clicked = st.button(
+            "Comprar", type="primary", use_container_width=True, key=f"buy_{ticker}"
+        )
+    with sell_col:
+        st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+        sell_clicked = st.button(
+            "Vender", use_container_width=True, key=f"sell_{ticker}"
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+if buy_clicked:
+    try:
+        r = pf_service.buy(ticker, float(trade_qty), portfolio_id=_active_pid)
+        st.success(
+            f"Compra ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
+            f"Posición total: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
+        )
+    except ValueError as e:
+        st.error(str(e))
+    except Exception as e:
+        st.error(f"Error inesperado: {e}")
+
+if sell_clicked:
+    try:
+        r = pf_service.sell(ticker, float(trade_qty), portfolio_id=_active_pid)
+        if r["new_qty"] == 0:
+            st.success(
+                f"Venta ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
+                "Posición cerrada."
+            )
+        else:
+            st.success(
+                f"Venta ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
+                f"Restante: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
+            )
+    except ValueError as e:
+        st.error(str(e))
+    except Exception as e:
+        st.error(f"Error inesperado: {e}")
+
+
+# ─── Tabs ───────────────────────────────────────────────────────────────────
+tab_summary, tab_compare, tab_analyze, tab_news = st.tabs([
+    "Resumen", "Comparar", "Análisis", "Noticias",
 ])
 
-with tab_stats:
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Market Cap", fmt_market_cap(q["market_cap"]), help="Capitalización bursátil (precio × acciones en circulación).")
-    c2.metric("P/E", f"{q['pe']:.2f}" if q["pe"] else "—", help="Price/Earnings.")
-    c3.metric("EPS", f"{q['eps']:.2f}" if q["eps"] else "—", help="Earnings per share.")
-    c4.metric("Beta", f"{q['beta']:.2f}" if q["beta"] else "—", help="Sensibilidad vs mercado.")
+# ── Tab Resumen ─────────────────────────────────────────────────────────────
+with tab_summary:
+    stat_strip([
+        stat_tile("EPS", f"{q['eps']:.2f}" if q["eps"] else "—"),
+        stat_tile("Beta", f"{q['beta']:.2f}" if q["beta"] else "—"),
+        stat_tile("52W máx.", fmt_money(q["fifty_two_high"], currency) if q["fifty_two_high"] else "—"),
+        stat_tile("52W mín.", fmt_money(q["fifty_two_low"], currency) if q["fifty_two_low"] else "—"),
+    ])
 
-    c5, c6, c7, c8 = st.columns(4)
-    c5.metric("52W máx.", fmt_money(q["fifty_two_high"], q["currency"]))
-    c6.metric("52W mín.", fmt_money(q["fifty_two_low"], q["currency"]))
-    c7.metric("Volumen", fmt_market_cap(q["volume"]) if q["volume"] else "—")
-    c8.metric("Vol. medio", fmt_market_cap(q["avg_volume"]) if q["avg_volume"] else "—")
+    stat_strip([
+        stat_tile("Vol. medio", fmt_market_cap(q["avg_volume"]) if q["avg_volume"] else "—"),
+        stat_tile("Sector", q["sector"] or "—"),
+        stat_tile("Industria", q["industry"] or "—"),
+        stat_tile("Divisa", currency),
+    ])
 
-    if q["sector"] or q["industry"]:
-        st.caption(f"Sector: {q['sector'] or '—'} · Industria: {q['industry'] or '—'}")
-
-with tab_news:
-    render_news_panel(ticker, limit=5)
-
-with tab_explain:
-    st.write(
-        f"Pide al agente una explicación breve de qué hace **{ticker}** "
-        "y por qué puede interesar."
+    # Bloque "Explícame".
+    st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+    section_title(
+        "Explícame esta empresa",
+        "Resumen breve generado por el agente con los datos del ticker.",
     )
+
     explain_key = f"explain_answer_{ticker}"
     explain_prompt_key = f"explain_prompt_{ticker}"
-    if st.button("💡 Explícame esta empresa", type="primary", key=f"explain_btn_{ticker}"):
+
+    if st.button(
+        "Generar resumen",
+        type="primary",
+        key=f"explain_btn_{ticker}",
+    ):
         prompt = (
             f"Explícame brevemente qué hace {ticker} ({q['name']}), en qué sector opera "
             "y qué factores conviene vigilar. Máximo 150 palabras."
@@ -208,13 +375,32 @@ with tab_explain:
         st.session_state[explain_prompt_key] = prompt
 
     if explain_key in st.session_state:
-        st.info(st.session_state[explain_key])
-        if st.button("↪ Continuar en el chat", key=f"explain_goto_chat_{ticker}"):
+        st.markdown(
+            f"""
+            <div class="pill-card" style="padding:18px;margin-top:8px;">
+              <div style="color:{COLOR_TEXT};font-size:14px;line-height:1.6;
+                          white-space:pre-wrap;">{st.session_state[explain_key]}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            "Continuar en el chat",
+            key=f"explain_goto_chat_{ticker}",
+        ):
             st.session_state["prefill_prompt"] = st.session_state[explain_prompt_key]
             st.switch_page("pages/1_Chat.py")
 
+
+# ── Tab Comparar ────────────────────────────────────────────────────────────
 with tab_compare:
-    st.write(f"Compara la evolución de **{ticker}** con otro ticker (normalizado a base 100).")
+    st.markdown(
+        f"<div style='color:{COLOR_MUTED};font-size:13px;margin-bottom:12px;'>"
+        f"Compara la evolución de <b style='color:{COLOR_TEXT};'>{ticker}</b> con otro "
+        f"ticker (normalizado a base 100, periodo {period})."
+        "</div>",
+        unsafe_allow_html=True,
+    )
     other = st.text_input(
         "Otro ticker para comparar",
         value="",
@@ -232,25 +418,45 @@ with tab_compare:
             s1n = (s1 / float(s1.iloc[0])) * 100
             s2n = (s2 / float(s2.iloc[0])) * 100
             fig_cmp = go.Figure()
-            fig_cmp.add_trace(go.Scatter(x=s1n.index, y=s1n.values, name=ticker, mode="lines"))
-            fig_cmp.add_trace(go.Scatter(x=s2n.index, y=s2n.values, name=other, mode="lines"))
+            fig_cmp.add_trace(go.Scatter(
+                x=s1n.index, y=s1n.values, name=ticker, mode="lines",
+                line=dict(color=COLOR_ACCENT, width=2),
+            ))
+            fig_cmp.add_trace(go.Scatter(
+                x=s2n.index, y=s2n.values, name=other, mode="lines",
+                line=dict(color=COLOR_UP, width=2),
+            ))
             fig_cmp.update_layout(
+                template="plotly_dark",
                 title=f"{ticker} vs {other} · base 100 ({period})",
                 xaxis_title="Fecha",
                 yaxis_title="Índice (base 100)",
                 hovermode="x unified",
                 margin=dict(l=10, r=10, t=50, b=10),
+                paper_bgcolor=COLOR_SURFACE,
+                plot_bgcolor=COLOR_SURFACE,
             )
             st.plotly_chart(fig_cmp, use_container_width=True)
 
+
+# ── Tab Análisis ────────────────────────────────────────────────────────────
 with tab_analyze:
-    st.write("Resumen fundamental rápido interpretando precio, P/E, Beta y rango 52w.")
+    st.markdown(
+        f"<div style='color:{COLOR_MUTED};font-size:13px;margin-bottom:12px;'>"
+        "Resumen fundamental rápido interpretando precio, P/E, Beta y rango 52w."
+        "</div>",
+        unsafe_allow_html=True,
+    )
     analyze_key = f"analyze_answer_{ticker}"
-    if st.button("🧠 Resumen fundamental rápido", type="primary", key=f"analyze_btn_{ticker}"):
+    if st.button(
+        "Generar análisis fundamental",
+        type="primary",
+        key=f"analyze_btn_{ticker}",
+    ):
         prompt = (
             f"Analiza brevemente {ticker} ({q['name']}) con los datos siguientes y "
             f"devuelve 3-4 bullets interpretando cada dato (sin inventar):\n"
-            f"- Precio actual: {fmt_money(price, q['currency'])}\n"
+            f"- Precio actual: {fmt_money(price, currency)}\n"
             f"- P/E: {q['pe']}\n"
             f"- Beta: {q['beta']}\n"
             f"- 52W rango: {q['fifty_two_low']} - {q['fifty_two_high']}\n"
@@ -267,113 +473,25 @@ with tab_analyze:
             except Exception as e:
                 ans = f"No pude obtener respuesta: {e}"
         st.session_state[analyze_key] = ans or "Sin respuesta."
+
     if analyze_key in st.session_state:
-        st.info(st.session_state[analyze_key])
-
-with tab_trade:
-    st.write(f"Ejecuta una operación simulada de **{ticker}** sobre la cartera activa.")
-    _active = pf_svc.get_portfolio(_active_pid)
-    if _active:
-        st.caption(f"Cartera activa: **{_active['name']}** · Cash disponible: "
-                   f"{fmt_money(pf_svc.cash_available(_active['id']), _active['currency'])}")
-    with st.form(f"trade_form_{ticker}", clear_on_submit=False):
-        c1, c2 = st.columns(2)
-        with c1:
-            side = st.radio("Tipo", options=["BUY", "SELL"], index=0, horizontal=True)
-        with c2:
-            qty = st.number_input("Cantidad", min_value=0.0001, step=1.0, value=1.0)
-        submit_trade = st.form_submit_button("Ejecutar", type="primary")
-        if submit_trade:
-            try:
-                if side == "BUY":
-                    r = pf_service.buy(ticker, float(qty), portfolio_id=_active_pid)
-                    st.success(
-                        f"✅ Compra ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
-                        f"Posición total: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
-                    )
-                else:
-                    r = pf_service.sell(ticker, float(qty), portfolio_id=_active_pid)
-                    if r["new_qty"] == 0:
-                        st.success(
-                            f"✅ Venta ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
-                            "Posición cerrada."
-                        )
-                    else:
-                        st.success(
-                            f"✅ Venta ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
-                            f"Restante: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
-                        )
-            except ValueError as e:
-                st.error(f"❌ {e}")
-            except Exception as e:
-                st.error(f"❌ Error inesperado: {e}")
+        st.markdown(
+            f"""
+            <div class="pill-card" style="padding:18px;margin-top:8px;">
+              <div style="color:{COLOR_TEXT};font-size:14px;line-height:1.6;
+                          white-space:pre-wrap;">{st.session_state[analyze_key]}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
-# -----------------------------------------------------------------------------
-# 📑 Fundamentales — ratios estructurados del ticker actual
-# -----------------------------------------------------------------------------
-from src.tools.analysis_tools import compare_tickers as _compare_tool, get_fundamentals as _fund_tool
-
-with tab_fund:
-    st.subheader(f"Fundamentales · {ticker}")
-    st.caption("Ratios oficiales de Yahoo Finance agrupados por bloque temático.")
-    if st.button("Cargar fundamentales", key="fund_load_btn", type="primary"):
-        with st.spinner("Consultando ratios..."):
-            txt = _fund_tool.invoke({"ticker": ticker})
-        st.session_state[f"fund_text_{ticker}"] = txt
-    cached_fund = st.session_state.get(f"fund_text_{ticker}")
-    if cached_fund:
-        st.code(cached_fund, language="text")
-    else:
-        st.info("Pulsa **Cargar fundamentales** para ver P/E, ROE, márgenes, debt/equity, etc.")
-
-
-# -----------------------------------------------------------------------------
-# 🔍 Comparador multi-ticker — tabla con métricas
-# -----------------------------------------------------------------------------
-with tab_cmpx:
-    st.subheader("Comparador multi-ticker")
-    st.caption("Compara hasta 6 tickers lado-a-lado: precio, P/E, market cap, dividendo, beta, YTD.")
-    raw = st.text_input(
-        "Tickers (separados por coma)",
-        value=f"{ticker}, MSFT, NVDA",
-        key="cmpx_input",
-        help="Hasta 6 símbolos. Ejemplo: AAPL, MSFT, NVDA, GOOGL",
+# ── Tab Noticias ────────────────────────────────────────────────────────────
+with tab_news:
+    st.markdown(
+        f"<div style='color:{COLOR_MUTED};font-size:13px;margin-bottom:12px;'>"
+        f"Últimos titulares relacionados con <b style='color:{COLOR_TEXT};'>{ticker}</b>."
+        "</div>",
+        unsafe_allow_html=True,
     )
-    if st.button("Comparar", key="cmpx_btn", type="primary"):
-        symbols = [s.strip().upper() for s in raw.split(",") if s.strip()]
-        if len(symbols) < 2 or len(symbols) > 6:
-            st.warning("Pasa entre 2 y 6 tickers.")
-        else:
-            with st.spinner("Recogiendo métricas..."):
-                txt = _compare_tool.invoke({"tickers": symbols})
-            st.session_state["cmpx_last_text"] = txt
-            st.session_state["cmpx_last_symbols"] = symbols
-
-    if st.session_state.get("cmpx_last_text"):
-        st.code(st.session_state["cmpx_last_text"], language="text")
-
-        # Gráfico de performance relativa normalizada (base 100 a 6 meses).
-        symbols = st.session_state.get("cmpx_last_symbols") or []
-        if symbols:
-            try:
-                with st.spinner("Cargando histórico..."):
-                    hist_data = {}
-                    for s in symbols:
-                        h = yf.Ticker(s).history(period="6mo")
-                        if not h.empty:
-                            base = float(h["Close"].iloc[0])
-                            hist_data[s] = (h.index, [float(c) / base * 100 for c in h["Close"]])
-                if hist_data:
-                    fig = go.Figure()
-                    for sym, (idx, vals) in hist_data.items():
-                        fig.add_trace(go.Scatter(x=idx, y=vals, mode="lines", name=sym))
-                    fig.update_layout(
-                        template="plotly_dark",
-                        title="Performance relativa (base 100, últimos 6 meses)",
-                        yaxis_title="Índice (base 100)",
-                        height=380,
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.warning(f"No pude cargar el gráfico de performance relativa: {e}")
+    render_news_panel(ticker, limit=6)

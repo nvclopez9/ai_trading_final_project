@@ -3,13 +3,17 @@
 Multi-cartera: acepta ``portfolio_id`` como parámetro. Si viene None lee
 ``st.session_state.active_portfolio_id`` (default 1).
 """
-import pandas as pd
 import streamlit as st
 
 from src.services import portfolio
 from src.services import portfolios
 from src.ui.charts import portfolio_allocation_pie, portfolio_pnl_bar
-from src.ui.components import fmt_money, fmt_pct
+from src.ui.components import (
+    empty_state,
+    holding_card,
+    section_title,
+    trade_row,
+)
 
 
 def render_portfolio_tab(portfolio_id: int | None = None) -> None:
@@ -23,53 +27,56 @@ def render_portfolio_tab(portfolio_id: int | None = None) -> None:
         st.error(f"La cartera con id={pid} no existe.")
         return
 
-    st.subheader(f"Cartera simulada · {p['name']}")
-    st.caption(
-        f"Riesgo: **{p['risk']}** · Mercados: **{p['markets']}** · "
-        f"Moneda: **{p['currency']}**"
+    section_title(
+        p["name"],
+        f"Riesgo: {p['risk']} · Mercados: {p['markets']} · Moneda: {p['currency']}",
     )
 
     col_refresh, _ = st.columns([1, 5])
     with col_refresh:
-        if st.button("🔄 Refrescar", key=f"portfolio_refresh_{pid}"):
+        if st.button("Refrescar", key=f"portfolio_refresh_{pid}"):
             st.rerun()
 
     try:
         positions = portfolio.get_positions(portfolio_id=pid)
-        totals = portfolio.get_portfolio_value(portfolio_id=pid)
-        cash = portfolios.cash_available(pid)
     except Exception as e:
         st.error(f"Error leyendo la cartera: {e}")
         return
 
     if not positions:
-        st.info("📭 Tu cartera simulada está vacía. Pídele al agente: \"compra 10 MSFT\".")
-        m1, m2 = st.columns(2)
-        m1.metric("Cash inicial", fmt_money(p["initial_cash"], p["currency"]))
-        m2.metric("Cash disponible", fmt_money(cash, p["currency"]))
+        empty_state(
+            "Cartera vacía",
+            "Pídele al agente \"compra 10 MSFT\".",
+            icon="📭",
+        )
         return
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Valor total", fmt_money(totals.get("total_value") or 0, p["currency"]))
-    m2.metric("P&L total", fmt_money(totals.get("total_pnl") or 0, p["currency"]))
-    m3.metric("Rentabilidad", fmt_pct(totals.get("total_pnl_pct") or 0))
-    m4.metric("Cash disponible", fmt_money(cash, p["currency"]))
+    # ---- Grid de holdings (rows de 5 cards) -------------------------------
+    currency = p["currency"]
+    per_row = 5
+    for start in range(0, len(positions), per_row):
+        chunk = positions[start:start + per_row]
+        cols = st.columns(per_row)
+        for col, pp in zip(cols, chunk):
+            col.markdown(
+                holding_card(
+                    ticker=pp["ticker"],
+                    qty=pp["qty"],
+                    value=pp.get("market_value"),
+                    pnl_pct=pp.get("pnl_pct"),
+                    currency=currency,
+                    avg_price=pp.get("avg_price"),
+                    after_hours_price=pp.get("after_hours_price"),
+                    after_hours_change_pct=pp.get("after_hours_change_pct"),
+                ),
+                unsafe_allow_html=True,
+            )
+        # Si la fila no llena, dejamos los huecos vacíos (las columnas extra
+        # no consumen contenido). Streamlit ya renderiza huecos en blanco.
 
-    df = pd.DataFrame([
-        {
-            "Ticker": pp["ticker"],
-            "Cantidad": pp["qty"],
-            "Precio medio": round(pp["avg_price"], 2),
-            "Precio actual": round(pp["current_price"], 2) if pp["current_price"] is not None else None,
-            "Coste": round(pp["cost_basis"], 2),
-            "Valor mercado": round(pp["market_value"], 2) if pp["market_value"] is not None else None,
-            "P&L": round(pp["pnl"], 2) if pp["pnl"] is not None else None,
-            "P&L %": round(pp["pnl_pct"], 2) if pp["pnl_pct"] is not None else None,
-        }
-        for pp in positions
-    ])
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.write("")
 
+    # ---- Charts: allocation + pnl ----------------------------------------
     c1, c2 = st.columns(2)
     with c1:
         fig_pie = portfolio_allocation_pie(positions)
@@ -84,7 +91,8 @@ def render_portfolio_tab(portfolio_id: int | None = None) -> None:
         else:
             st.caption("Sin datos suficientes para el gráfico de P&L.")
 
-    with st.expander("Historial de transacciones"):
+    # ---- Historial reciente ---------------------------------------------
+    with st.expander("Historial reciente"):
         try:
             txs = portfolio.get_transactions(limit=20, portfolio_id=pid)
         except Exception as e:
@@ -93,14 +101,17 @@ def render_portfolio_tab(portfolio_id: int | None = None) -> None:
         if not txs:
             st.write("No hay transacciones registradas.")
         else:
-            df_tx = pd.DataFrame([
-                {
-                    "Fecha": t["ts"],
-                    "Ticker": t["ticker"],
-                    "Lado": t["side"],
-                    "Cantidad": t["qty"],
-                    "Precio": round(t["price"], 2),
-                }
-                for t in txs
-            ])
-            st.dataframe(df_tx, use_container_width=True, hide_index=True)
+            rows_html = ""
+            for t in txs:
+                rows_html += trade_row(
+                    ts=t["ts"],
+                    ticker=t["ticker"],
+                    side=t["side"],
+                    qty=t["qty"],
+                    price=t["price"],
+                    currency=currency,
+                )
+            st.markdown(
+                f"<div class='pill-card'>{rows_html}</div>",
+                unsafe_allow_html=True,
+            )

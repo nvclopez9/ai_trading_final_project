@@ -13,7 +13,7 @@ from src.services.db import get_conn
 
 
 def _current_price(symbol: str) -> float | None:
-    """Obtiene el precio actual de un ticker; devuelve None si falla."""
+    """Obtiene el precio regular de cierre de un ticker; None si falla."""
     try:
         t = yf.Ticker(symbol)
         info = t.info or {}
@@ -26,6 +26,68 @@ def _current_price(symbol: str) -> float | None:
         return float(price) if price is not None else None
     except Exception:
         return None
+
+
+def _after_hours_price(symbol: str) -> tuple[float | None, float | None]:
+    """Devuelve ``(precio, cambio_pct)`` de la sesión extendida (post o pre-market).
+
+    Yahoo expone ``postMarketPrice``/``preMarketPrice`` en ``Ticker.info`` durante
+    sesión extendida (USA: 16:00–20:00 ET / 04:00–09:30 ET). Si no hay datos
+    devuelve ``(None, None)``. Cualquier excepción se traga: este dato es
+    informativo y no debe romper el render de la cartera.
+    """
+    try:
+        info = yf.Ticker(symbol).info or {}
+        ah = info.get("postMarketPrice")
+        ah_pct = info.get("postMarketChangePercent")
+        if ah is None:
+            ah = info.get("preMarketPrice")
+            ah_pct = info.get("preMarketChangePercent")
+        if ah is None:
+            return None, None
+        ah = float(ah)
+        if ah_pct is None:
+            ref = info.get("regularMarketPrice") or info.get("currentPrice")
+            if ref:
+                ah_pct = (ah - float(ref)) / float(ref) * 100
+        return ah, float(ah_pct) if ah_pct is not None else None
+    except Exception:
+        return None, None
+
+
+def recent_duplicate_buy(
+    ticker: str, qty: float, price: float, portfolio_id: int = 1, window_seconds: int = 30
+) -> dict | None:
+    """Devuelve la transacción BUY casi-idéntica más reciente (<window_seconds) o None.
+    Coincidencia: mismo ticker, misma qty, precio dentro de ±1%."""
+    symbol = ticker.strip().upper()
+    pid = int(portfolio_id)
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT qty, price, ts FROM transactions "
+            "WHERE portfolio_id = ? AND ticker = ? AND side = 'BUY' "
+            "ORDER BY ts DESC, id DESC LIMIT 1",
+            (pid, symbol),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    try:
+        prev_ts = datetime.fromisoformat(row["ts"])
+    except (ValueError, TypeError):
+        return None
+    delta = (datetime.now(timezone.utc) - prev_ts).total_seconds()
+    if delta < 0 or delta > window_seconds:
+        return None
+    if float(row["qty"]) != float(qty):
+        return None
+    prev_price = float(row["price"])
+    if prev_price <= 0:
+        return None
+    if abs(prev_price - float(price)) / prev_price > 0.01:
+        return None
+    return {"qty": float(row["qty"]), "price": prev_price, "seconds_ago": int(delta)}
 
 
 def buy(ticker: str, qty: float, price: float | None = None, portfolio_id: int = 1) -> dict:
@@ -163,8 +225,10 @@ def get_positions(portfolio_id: int = 1) -> list[dict]:
     if len(tickers) > 3:
         with ThreadPoolExecutor(max_workers=8) as ex:
             prices = dict(zip(tickers, ex.map(_current_price, tickers)))
+            ah_data = dict(zip(tickers, ex.map(_after_hours_price, tickers)))
     else:
         prices = {t: _current_price(t) for t in tickers}
+        ah_data = {t: _after_hours_price(t) for t in tickers}
 
     positions = []
     for r in rows:
@@ -181,6 +245,10 @@ def get_positions(portfolio_id: int = 1) -> list[dict]:
             market_value = qty * current_price
             pnl = market_value - cost_basis
             pnl_pct = (pnl / cost_basis * 100) if cost_basis else 0.0
+
+        ah_price, ah_pct = ah_data.get(ticker, (None, None))
+        ah_value = qty * ah_price if ah_price is not None else None
+
         positions.append({
             "ticker": ticker,
             "qty": qty,
@@ -190,6 +258,9 @@ def get_positions(portfolio_id: int = 1) -> list[dict]:
             "market_value": market_value,
             "pnl": pnl,
             "pnl_pct": pnl_pct,
+            "after_hours_price": ah_price,
+            "after_hours_change_pct": ah_pct,
+            "after_hours_value": ah_value,
         })
     return positions
 
@@ -224,6 +295,8 @@ def get_portfolio_value(portfolio_id: int = 1) -> dict:
     positions = get_positions(portfolio_id=portfolio_id)
     total_value = 0.0
     total_cost = 0.0
+    total_value_ah = 0.0
+    has_ah = False
     stale_tickers: list[str] = []
     for p in positions:
         if p["market_value"] is None:
@@ -231,12 +304,22 @@ def get_portfolio_value(portfolio_id: int = 1) -> dict:
             continue
         total_cost += p["cost_basis"] or 0.0
         total_value += p["market_value"]
+        if p.get("after_hours_value") is not None:
+            total_value_ah += p["after_hours_value"]
+            has_ah = True
+        else:
+            total_value_ah += p["market_value"]
     total_pnl = total_value - total_cost
     total_pnl_pct = (total_pnl / total_cost * 100) if total_cost else 0.0
+    ah_delta = total_value_ah - total_value if has_ah else None
+    ah_delta_pct = (ah_delta / total_value * 100) if (has_ah and total_value) else None
     return {
         "total_value": total_value,
         "total_cost": total_cost,
         "total_pnl": total_pnl,
         "total_pnl_pct": total_pnl_pct,
         "stale_tickers": stale_tickers,
+        "total_value_after_hours": total_value_ah if has_ah else None,
+        "after_hours_delta": ah_delta,
+        "after_hours_delta_pct": ah_delta_pct,
     }

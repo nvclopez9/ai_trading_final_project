@@ -7,6 +7,7 @@ NO pasa por el agente, para que el panel cargue rápido y no gaste tokens.
 import streamlit as st
 
 from src.tools.market_tools import fetch_ticker_news
+from src.ui.components import news_card
 
 
 def render_news_panel(ticker: str, limit: int = 5) -> None:
@@ -24,11 +25,14 @@ def render_news_panel(ticker: str, limit: int = 5) -> None:
         st.info(f"No hay noticias disponibles para {ticker} ahora mismo.")
         return
     for n in items:
-        # Título como link si tenemos URL, si no como texto plano.
-        title = n["title"]
-        if n["link"]:
-            st.markdown(f"**[{title}]({n['link']})**")
-        else:
-            st.markdown(f"**{title}**")
-        st.caption(f"{n['date']} · {n['source']}")
-        st.divider()
+        st.markdown(
+            news_card(
+                title=n.get("title") or "(sin título)",
+                source=n.get("source") or "n/d",
+                ts=n.get("date"),
+                ticker=ticker,
+                url=n.get("link"),
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)

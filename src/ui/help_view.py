@@ -1,126 +1,149 @@
-"""Pestaña de ayuda: explica qué puedes preguntar al bot y cómo usarlo.
+"""Pestaña de ayuda: explica qué puede hacer el bot y cómo usarlo.
 
-Función única ``render_help_tab()`` invocada desde ``app.py``. Todo el
-contenido es estático: no consulta el agente ni yfinance, por lo que es
-rápida y útil como onboarding para usuarios que abren la app por primera vez.
+Render reorganizado en 3 secciones (Qué puedo hacer, Cómo interpretar
+respuestas, Qué NO hace) con estética dark fintech basada en
+``src/ui/components/__init__.py``.
 """
+from __future__ import annotations
+
 import streamlit as st
+
+from src.ui.components import (
+    COLOR_ACCENT,
+    COLOR_DIM,
+    COLOR_MUTED,
+    COLOR_TEXT,
+    COLOR_WARNING,
+    section_title,
+)
+
+
+# Bloques de ejemplos: (categoría, título, descripción, [(label_ejemplo, prompt)]).
+_CAPABILITIES = [
+    {
+        "title": "Mercado",
+        "subtitle": "Precios, fundamentales y comparativas en vivo.",
+        "examples": [
+            ("¿Cómo está AAPL?", "¿Cómo está AAPL?"),
+            ("Histórico de TSLA a 6 meses", "Dame el histórico de TSLA a 6 meses"),
+            ("Tickers más calientes hoy", "¿Cuáles son los tickers más calientes hoy?"),
+            ("Comparar AAPL y MSFT", "Compárame AAPL y MSFT"),
+        ],
+    },
+    {
+        "title": "Cartera",
+        "subtitle": "Operativa simulada sobre tu cartera activa.",
+        "examples": [
+            ("Comprar 10 MSFT", "Compra 10 acciones de MSFT"),
+            ("Vender 5 AAPL", "Vende 5 acciones de AAPL"),
+            ("Ver mi cartera", "Muéstrame mi cartera"),
+            ("Últimas transacciones", "Enséñame mis últimas transacciones"),
+        ],
+    },
+    {
+        "title": "Educación",
+        "subtitle": "Conceptos financieros explicados con fuentes oficiales.",
+        "examples": [
+            ("¿Qué es el ratio P/E?", "¿Qué es el ratio P/E?"),
+            ("¿Qué es un ETF?", "Explícame qué es un ETF"),
+            ("Value vs growth", "Diferencia entre value y growth investing"),
+            ("¿Qué es DCA?", "¿Qué es el DCA (dollar-cost averaging)?"),
+        ],
+    },
+]
+
+
+def _capability_card(idx: int, block: dict) -> None:
+    """Pinta una card con título, subtítulo y botones de ejemplo clickables."""
+    st.markdown(
+        f"""
+        <div class="pill-card" style="padding:20px;height:100%;">
+          <div style="font-size:14px;font-weight:700;color:{COLOR_TEXT};
+                      letter-spacing:-0.01em;margin-bottom:4px;">{block['title']}</div>
+          <div style="font-size:12px;color:{COLOR_MUTED};margin-bottom:14px;
+                      line-height:1.5;">{block['subtitle']}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    for j, (label, prompt) in enumerate(block["examples"]):
+        if st.button(label, key=f"help_ex_{idx}_{j}", use_container_width=True):
+            st.session_state["prefill_prompt"] = prompt
+            st.switch_page("pages/1_Chat.py")
 
 
 def render_help_tab() -> None:
-    """Renderiza el contenido educativo de la pestaña ❓ Ayuda."""
-    st.subheader("❓ ¿Cómo usar el bot?")
-    st.caption(
-        "Este asistente combina datos de mercado en vivo, una cartera simulada y "
-        "una base de conocimiento financiera (PDFs oficiales de CNMV y SEC). "
-        "Aquí te enseño qué puedes preguntarle y cómo sacarle partido."
+    """Renderiza el contenido educativo de la pestaña Ayuda."""
+
+    # ── Sección 1: Qué puedo hacer ──────────────────────────────────────────
+    section_title(
+        "Qué puedo hacer",
+        "Tres áreas principales: mercado en vivo, cartera simulada y educación financiera.",
     )
 
-    st.markdown("### 🎯 Qué puedes preguntarme")
+    cols = st.columns(3)
+    for i, block in enumerate(_CAPABILITIES):
+        with cols[i]:
+            _capability_card(i, block)
 
-    # 4 expanders en 2x2 para que queden todos visibles y expandibles a demanda.
-    col1, col2 = st.columns(2)
-    with col1:
-        with st.expander("💹 Precios y mercado", expanded=True):
-            st.markdown(
-                "- *¿Cómo está AAPL?*\n"
-                "- *Dame el histórico de TSLA a 6 meses*\n"
-                "- *¿Cuáles son los tickers más calientes hoy?*\n"
-                "- *Muéstrame los que más bajan en el S&P hoy*\n"
-                "- *¿Cuál es la capitalización de MSFT?*"
-            )
-        with st.expander("💼 Cartera simulada"):
-            st.markdown(
-                "- *Compra 10 acciones de MSFT*\n"
-                "- *Vende 5 acciones de AAPL*\n"
-                "- *Muéstrame mi cartera*\n"
-                "- *Enséñame mis últimas transacciones*\n"
-                "- *¿Cuánto vale mi cartera ahora?*"
-            )
-        with st.expander("🧺 Multi-cartera"):
-            st.markdown(
-                "Ahora puedes tener **varias carteras** con perfiles distintos. "
-                "Créalas desde la pestaña 🧺 **Mis Carteras** (nombre, cash inicial, "
-                "riesgo y mercados objetivo). Las operaciones del agente se "
-                "ejecutan siempre sobre la cartera **activa**.\n\n"
-                "Interacciones útiles con el agente:\n"
-                "- *Lista mis carteras*\n"
-                "- *Cambia el riesgo de mi cartera a agresivo*\n"
-                "- *Cambia los mercados a USA y Europa*\n\n"
-                "ℹ️ El **dinero inicial** de una cartera **no** se puede modificar "
-                "desde el agente: crea una nueva cartera si necesitas otro importe."
-            )
-    with col2:
-        with st.expander("📚 Educación financiera", expanded=True):
-            st.markdown(
-                "- *¿Qué es el ratio P/E?*\n"
-                "- *Explícame qué es un ETF*\n"
-                "- *Diferencia entre value y growth investing*\n"
-                "- *¿Qué es el DCA (dollar-cost averaging)?*\n"
-                "- *¿Cómo tributan las plusvalías en España?*"
-            )
-        with st.expander("📰 Noticias y contexto"):
-            st.markdown(
-                "- *¿Qué noticias hay de NVDA?*\n"
-                "- *Últimos titulares de Amazon*\n"
-                "- *Compárame AAPL y MSFT*\n"
-                "- *¿Es buen momento para entrar en tecnología?* (opinión educativa, "
-                "no consejo de inversión)"
-            )
+    # ── Sección 2: Cómo interpretar respuestas ──────────────────────────────
+    section_title(
+        "Cómo interpretar respuestas",
+        "Convenciones y consejos para sacar el máximo partido al agente.",
+    )
 
-    st.divider()
-
-    st.markdown("### 💡 Consejos para mejores respuestas")
     st.markdown(
-        "- **Usa el ticker en mayúsculas** (`AAPL`, `MSFT`) en vez del nombre "
-        "completo: las herramientas de mercado lo esperan así.\n"
-        "- **Sé específico con el periodo** (`1mo`, `3mo`, `6mo`, `1y`, `5y`) "
-        "si quieres un histórico concreto.\n"
-        "- **Si la respuesta no te convence, reformula** la pregunta o pide "
-        "aclaraciones — el agente mantiene el contexto de la conversación.\n"
-        "- **Para conceptos educativos**, el bot busca en los PDFs oficiales "
-        "de CNMV y SEC y te cita la fuente.\n"
-        "- **La cartera es simulada**: no hay dinero real ni broker; es para "
-        "practicar sin riesgo."
+        f"""
+        <div class="pill-card" style="padding:22px;">
+          <ul style="margin:0;padding-left:18px;color:{COLOR_TEXT};
+                     font-size:14px;line-height:1.75;">
+            <li><b>Tickers en mayúsculas</b> (<code>AAPL</code>, <code>MSFT</code>):
+                las herramientas de mercado los esperan así.</li>
+            <li><b>Periodos válidos</b>: <code>1mo</code>, <code>3mo</code>,
+                <code>6mo</code>, <code>1y</code>, <code>5y</code>.</li>
+            <li><b>El agente mantiene contexto</b>: si una respuesta no convence,
+                reformula o pide aclaración en el mismo chat.</li>
+            <li><b>Educación financiera</b>: las respuestas se basan en PDFs
+                oficiales de CNMV y SEC y citan la fuente.</li>
+            <li><b>La cartera es simulada</b>: no hay broker real ni dinero real;
+                sirve para practicar sin riesgo.</li>
+          </ul>
+          <div style="margin-top:14px;color:{COLOR_DIM};font-size:12px;">
+            Tip: el badge LLM activo en la Home te indica qué motor (Ollama local
+            u OpenRouter cloud) está respondiendo.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    st.divider()
+    # ── Sección 3: Qué NO hace ──────────────────────────────────────────────
+    section_title(
+        "Qué NO hace",
+        "Limitaciones que conviene tener en cuenta antes de pedir.",
+    )
 
-    st.markdown("### 🚫 Qué NO puede hacer")
     st.markdown(
-        "- **Datos en tiempo real tick a tick**: los precios vienen de Yahoo "
-        "Finance con un pequeño retraso.\n"
-        "- **Asesoramiento financiero personalizado**: esta herramienta es "
-        "educativa; no te dice qué comprar con tu dinero real.\n"
-        "- **Operar en un broker real**: todas las compras/ventas son "
-        "simuladas y sólo viven en una base de datos local.\n"
-        "- **Predecir el futuro**: ningún modelo, ni siquiera el mejor, sabe "
-        "si una acción subirá mañana."
-    )
-
-    st.divider()
-
-    st.markdown("### 🤖 Cambiar el LLM (Ollama local ↔ OpenRouter cloud)")
-    st.markdown(
-        "El bot puede funcionar con dos motores intercambiables, configurados "
-        "en el archivo `.env`:\n\n"
-        "- **Ollama (local)** — tu PC ejecuta el modelo. Privado, gratis, sin "
-        "límite de cuota, pero limitado por la RAM/CPU/GPU de la máquina. "
-        "Bueno para empezar y para presentaciones offline.\n"
-        "- **OpenRouter (cloud)** — pasarela a modelos remotos (incluidos "
-        "varios **gratis** como `openai/gpt-oss-20b:free` o "
-        "`meta-llama/llama-3.3-70b-instruct:free`). Más potente y con "
-        "tool-calling fiable. Necesita conexión y una API key gratuita de "
-        "https://openrouter.ai/keys.\n\n"
-        "Para alternar, edita `.env` y reinicia Streamlit:\n"
-        "```\nLLM_PROVIDER=openrouter   # o 'ollama'\n"
-        "OPENROUTER_API_KEY=sk-or-...\n"
-        "OPENROUTER_MODEL=openai/gpt-oss-20b:free\n```\n"
-        "El badge **🤖 LLM activo** de la Home te confirma cuál se está usando."
-    )
-
-    st.info(
-        "ℹ️ Este bot es un proyecto educativo (Práctica IX - Agentes de IA). "
-        "La información que ofrece es orientativa y no constituye asesoramiento "
-        "financiero, fiscal ni legal."
+        f"""
+        <div class="pill-card" style="padding:22px;border-color:{COLOR_WARNING};
+                     box-shadow:0 0 0 1px {COLOR_WARNING}33 inset;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.1em;
+                      color:{COLOR_WARNING};font-weight:600;margin-bottom:10px;">
+            Disclaimers
+          </div>
+          <ul style="margin:0;padding-left:18px;color:{COLOR_TEXT};
+                     font-size:14px;line-height:1.75;">
+            <li><b>No es asesoramiento financiero</b> personalizado: es una
+                herramienta educativa.</li>
+            <li><b>No opera en un broker real</b>: todas las compras y ventas
+                viven en una base de datos local.</li>
+            <li><b>No predice el futuro</b>: ningún modelo sabe si una acción
+                subirá mañana.</li>
+            <li><b>Datos con retraso</b>: los precios vienen de Yahoo Finance
+                con un pequeño delay, no son tick a tick.</li>
+            <li><b>No realiza operaciones fiscales o legales</b> en tu nombre.</li>
+          </ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )

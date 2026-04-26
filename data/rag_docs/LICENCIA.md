@@ -6,6 +6,9 @@ El contenido de esta carpeta (archivos `.pdf`) está compuesto por **publicacion
 
 - **CNMV** — Comisión Nacional del Mercado de Valores (España). <https://www.cnmv.es/>
 - **SEC / Investor.gov** — U.S. Securities and Exchange Commission, Office of Investor Education and Advocacy. Las publicaciones de la SEC son obra del Gobierno federal de EE.UU. y, por tanto, de **dominio público** en EE.UU. (17 U.S.C. § 105). <https://www.investor.gov/>
+- **CFTC** — U.S. Commodity Futures Trading Commission. Sus publicaciones son obra del Gobierno federal de EE.UU. y de dominio público (17 U.S.C. § 105). <https://www.cftc.gov/>
+- **ESMA** — European Securities and Markets Authority. Documentos publicados en abierto en su portal oficial. <https://www.esma.europa.eu/>
+- **BME** — Bolsas y Mercados Españoles (canal de difusión secundario que aloja varias guías oficiales de la CNMV en su sección "Guías del inversor"). <https://www.bolsasymercados.es/>
 
 ## Condiciones de uso
 
