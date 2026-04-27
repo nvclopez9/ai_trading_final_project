@@ -14,8 +14,10 @@ from src.ui.components import (
     COLOR_SURFACE,
     COLOR_TEXT,
     delta_badge,
+    footer_disclaimer,
     hero,
     inject_app_styles,
+    sidebar_kpi,
 )
 
 st.set_page_config(page_title="Top del día · Bot de Inversiones", page_icon="🔥", layout="wide", initial_sidebar_state="expanded")
@@ -49,6 +51,29 @@ if not rows:
 gainers = sorted(rows, key=lambda r: r["change_pct"], reverse=True)[:10]
 losers = sorted(rows, key=lambda r: r["change_pct"])[:10]
 actives = sorted(rows, key=lambda r: r["volume"], reverse=True)[:10]
+
+
+# ─── Sidebar contextual: snapshot del universo + filtros ──────────────────
+with st.sidebar:
+    st.markdown("<div class='section-eyebrow'>Mercado hoy</div>", unsafe_allow_html=True)
+    _avg_pct = sum((r.get("change_pct") or 0) for r in rows) / max(len(rows), 1)
+    _up_count = sum(1 for r in rows if (r.get("change_pct") or 0) > 0)
+    _down_count = sum(1 for r in rows if (r.get("change_pct") or 0) < 0)
+    st.markdown(sidebar_kpi("Universo", str(len(rows)), hint="S&P 500"),
+                unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("Subiendo", str(_up_count), delta=_avg_pct),
+                unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("Bajando", str(_down_count)), unsafe_allow_html=True)
+
+    st.markdown("<div class='section-eyebrow' style='margin-top:14px;'>Atajos</div>",
+                unsafe_allow_html=True)
+    if gainers and st.button(f"Mercado · {gainers[0]['ticker']} →",
+                              key="top_sb_first_gainer", use_container_width=True):
+        st.session_state["active_ticker"] = gainers[0]["ticker"]
+        st.switch_page("pages/4_Mercado.py")
+    if st.button("Refrescar snapshot", key="top_sb_refresh", use_container_width=True):
+        _snapshot.clear()
+        st.rerun()
 
 
 def _card_html(r: dict) -> str:
@@ -110,3 +135,5 @@ st.markdown(
     f"</div>",
     unsafe_allow_html=True,
 )
+
+footer_disclaimer()

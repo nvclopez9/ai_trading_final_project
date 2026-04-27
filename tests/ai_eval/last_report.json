@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-04-27T10:23:39+0100",
+  "skipped": true,
+  "reason": "build_agent_failed:ModuleNotFoundError:No module named 'langchain_openai'",
+  "total": 13,
+  "passed": 0,
+  "failed": 0,
+  "by_scenario": {}
+}

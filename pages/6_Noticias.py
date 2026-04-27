@@ -21,10 +21,12 @@ from src.tools.market_tools import fetch_ticker_news
 from src.ui.components import (
     COLOR_MUTED,
     COLOR_TEXT,
+    footer_disclaimer,
     hero,
     inject_app_styles,
     news_card,
     section_title,
+    sidebar_kpi,
 )
 
 st.set_page_config(page_title="Noticias · Bot de Inversiones", page_icon="📰", layout="wide", initial_sidebar_state="expanded")
@@ -38,6 +40,33 @@ hero(
 
 agent = get_agent()
 session_id = ensure_session_id()
+
+
+# ─── Sidebar contextual: filtros + tickers de la cartera ──────────────────
+with st.sidebar:
+    st.markdown("<div class='section-eyebrow'>Mis tickers</div>", unsafe_allow_html=True)
+    try:
+        from src.services import portfolio as _pfs
+        _active_pid_n = st.session_state.get("active_portfolio_id", 1)
+        _holdings = _pfs.get_positions(portfolio_id=_active_pid_n)
+        _my_tickers = [h["ticker"] for h in _holdings]
+    except Exception:
+        _my_tickers = []
+    if _my_tickers:
+        for t in _my_tickers[:8]:
+            if st.button(f"📰 {t}", key=f"news_sb_t_{t}", use_container_width=True):
+                st.session_state["news_search_ticker"] = t
+                st.rerun()
+    else:
+        st.caption("Sin posiciones — mostramos los populares.")
+
+    st.markdown("<div class='section-eyebrow' style='margin-top:14px;'>Resumen</div>",
+                unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("Universo portal", "8", hint="mega-caps + ETFs"),
+                unsafe_allow_html=True)
+    if st.button("Refrescar feeds", key="news_sb_refresh", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
 
 # Universos curados.
@@ -291,3 +320,5 @@ st.markdown(
     f"</div>",
     unsafe_allow_html=True,
 )
+
+footer_disclaimer()

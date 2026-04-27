@@ -383,6 +383,76 @@ def empty_state(title: str, subtitle: str = "", icon: str = "📭") -> None:
     )
 
 
+def footer_disclaimer() -> None:
+    """Pie de página común a todas las páginas: disclaimer + créditos.
+
+    Coherencia: el mismo bloque al final de cualquier página refuerza la
+    sensación de app única. Estilo discreto (DIM) y separado por una línea.
+    """
+    st.markdown(
+        f"""
+        <div style='margin-top:48px;padding:20px 0 8px 0;border-top:1px solid {COLOR_BORDER};'>
+          <div style='display:flex;justify-content:space-between;align-items:center;
+                      flex-wrap:wrap;gap:12px;'>
+            <div style='color:{COLOR_DIM};font-size:11px;'>
+              Información orientativa. Este bot no constituye asesoramiento financiero.
+              Datos de mercado vía Yahoo Finance.
+            </div>
+            <div style='color:{COLOR_DIM};font-size:11px;font-family:{_MONO};'>
+              Bot de Inversiones · LangChain + Ollama / OpenRouter
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def sidebar_kpi(label: str, value: str, hint: str | None = None,
+                delta: float | None = None) -> str:
+    """Mini-KPI compacto pensado para el sidebar (más estrecho que stat_tile)."""
+    delta_html = f"<div style='margin-top:4px;'>{delta_badge(delta)}</div>" if delta is not None else ""
+    hint_html = (
+        f"<div style='color:{COLOR_DIM};font-size:10.5px;margin-top:4px;'>{hint}</div>"
+        if hint else ""
+    )
+    return (
+        f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
+        f"border-radius:10px;padding:10px 12px;margin-bottom:8px;'>"
+        f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:0.1em;"
+        f"color:{COLOR_MUTED};font-weight:500;'>{label}</div>"
+        f"<div style='font-family:{_MONO};font-size:1.1rem;font-weight:600;"
+        f"color:{COLOR_TEXT};margin-top:4px;line-height:1.1;'>{value}</div>"
+        f"{delta_html}{hint_html}"
+        f"</div>"
+    )
+
+
+def sidebar_section_open(title: str) -> str:
+    """Apertura de bloque del sidebar con eyebrow + card. Cierre con ``</div>``.
+
+    Patrón:
+        st.markdown(sidebar_section_open("Filtros"), unsafe_allow_html=True)
+        # ... widgets de Streamlit ...
+        st.markdown("</div>", unsafe_allow_html=True)
+    """
+    return (
+        f"<div class='section-eyebrow' style='margin-top:18px;'>{title}</div>"
+        f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
+        f"border-radius:10px;padding:10px 12px;'>"
+    )
+
+
+def kbd(text: str) -> str:
+    """Devuelve un span con look de tecla (atajos de teclado, slash hints, etc.)."""
+    return (
+        f"<span style='display:inline-block;padding:1px 6px;border-radius:4px;"
+        f"font-family:{_MONO};font-size:11px;font-weight:600;color:{COLOR_TEXT};"
+        f"background:{COLOR_SURFACE_2};border:1px solid {COLOR_BORDER};"
+        f"box-shadow:0 1px 0 rgba(0,0,0,0.4);'>{text}</span>"
+    )
+
+
 def card_open(padding: str = "20px") -> str:
     """Devuelve la apertura de una card. Cierre con ``</div>``."""
     return (
@@ -736,6 +806,102 @@ def inject_app_styles() -> None:
             #MainMenu {{ visibility: hidden; }}
             footer {{ visibility: hidden; }}
             [data-testid="stToolbar"] {{ display: none; }}
+
+            /* ─── Pulido extra ──────────────────────────────────────────── */
+
+            /* Scrollbar dark consistente con la paleta. */
+            ::-webkit-scrollbar {{ width: 10px; height: 10px; }}
+            ::-webkit-scrollbar-track {{ background: {COLOR_BG}; }}
+            ::-webkit-scrollbar-thumb {{
+                background: {COLOR_SURFACE_2};
+                border-radius: 6px;
+                border: 2px solid {COLOR_BG};
+            }}
+            ::-webkit-scrollbar-thumb:hover {{ background: {COLOR_BORDER_STRONG}; }}
+            * {{ scrollbar-color: {COLOR_SURFACE_2} {COLOR_BG}; scrollbar-width: thin; }}
+
+            /* Selección de texto: usa accent translúcido. */
+            ::selection {{
+                background: {COLOR_ACCENT}40;
+                color: {COLOR_TEXT};
+            }}
+
+            /* Focus ring uniforme (botones, inputs, page_links) en accent. */
+            button:focus-visible,
+            [data-testid="stPageLink"] a:focus-visible,
+            input:focus-visible,
+            textarea:focus-visible,
+            select:focus-visible {{
+                outline: 2px solid {COLOR_ACCENT}80 !important;
+                outline-offset: 2px !important;
+                box-shadow: 0 0 0 3px {COLOR_ACCENT}25 !important;
+            }}
+
+            /* Transición uniforme global para hovers. */
+            button, a, [data-testid="stMetric"], .pill-card, .ticker-row {{
+                transition: all 160ms ease;
+            }}
+
+            /* Plotly: chart card con padding sutil y fondo coherente. */
+            .js-plotly-plot, [data-testid="stPlotlyChart"] {{
+                background: transparent !important;
+                border-radius: 12px;
+            }}
+            [data-testid="stPlotlyChart"] > div {{
+                background: transparent !important;
+            }}
+
+            /* Mensajes del chat: avatar más sutil y bordes consistentes. */
+            [data-testid="stChatMessage"] {{
+                box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+            }}
+            [data-testid="stChatMessageContent"] p {{
+                line-height: 1.6;
+            }}
+
+            /* Chat input flotante en la base: borde arriba para separarlo. */
+            [data-testid="stChatInput"] {{
+                border-top: 1px solid {COLOR_BORDER};
+                background: {COLOR_BG} !important;
+            }}
+            [data-testid="stChatInput"] > div {{
+                background: {COLOR_SURFACE} !important;
+                border-radius: 12px;
+            }}
+
+            /* Captions más legibles (st.caption) */
+            small, [data-testid="stCaption"] {{
+                color: {COLOR_DIM} !important;
+                font-size: 11.5px;
+                letter-spacing: 0.01em;
+            }}
+
+            /* Toasts (st.toast) sobre el dark theme. */
+            [data-testid="stToast"] {{
+                background: {COLOR_SURFACE} !important;
+                border: 1px solid {COLOR_BORDER} !important;
+                color: {COLOR_TEXT} !important;
+                border-radius: 10px !important;
+                box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
+            }}
+
+            /* Spinner más sutil. */
+            [data-testid="stSpinner"] > div {{
+                border-color: {COLOR_BORDER} !important;
+                border-top-color: {COLOR_ACCENT} !important;
+            }}
+
+            /* Form submit buttons heredan el estilo primario uniforme. */
+            [data-testid="stFormSubmitButton"] button {{
+                background: {COLOR_ACCENT} !important;
+                color: white !important;
+                border: 1px solid {COLOR_ACCENT} !important;
+                font-weight: 500 !important;
+            }}
+            [data-testid="stFormSubmitButton"] button:hover {{
+                background: #2563EB !important;
+                border-color: #2563EB !important;
+            }}
         </style>
         """,
         unsafe_allow_html=True,

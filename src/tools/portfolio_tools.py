@@ -89,7 +89,11 @@ def portfolio_sell(ticker: str, qty: float) -> str:
     """Ejecuta una VENTA simulada de 'qty' acciones del 'ticker' al precio de mercado actual.
     Opera sobre la cartera ACTIVA del usuario.
     Valida posición existente y cantidad suficiente.
-    Antes de llamarla, avisa brevemente al usuario de lo que vas a hacer."""
+    Antes de llamarla, avisa brevemente al usuario de lo que vas a hacer.
+
+    Esta tool valida internamente si la posición existe; llámala SIEMPRE que el
+    usuario indique intención de vender, aun cuando creas que no hay posición. Si
+    no la hay, devuelve un mensaje útil que puedes mostrar al usuario."""
     try:
         pid = get_active_portfolio_id()
         r = portfolio.sell(ticker, float(qty), portfolio_id=pid)

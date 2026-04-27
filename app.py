@@ -24,12 +24,15 @@ from src.ui.components import (
     COLOR_MUTED,
     empty_state,
     fmt_money,
+    fmt_pct,
+    footer_disclaimer,
     hero,
     holding_card,
     inject_app_styles,
     llm_badge,
     market_row,
     section_title,
+    sidebar_kpi,
     stat_strip,
     stat_tile,
 )
@@ -50,6 +53,63 @@ _ = ensure_session_id()
 if "first_visit" not in st.session_state:
     st.session_state.first_visit = True
     st.toast("Bienvenido. Usa la barra lateral para navegar entre secciones.", icon="👋")
+
+
+# ---- Sidebar contextual: resumen de la sesión activa ---------------------
+with st.sidebar:
+    try:
+        _all_portfolios_sb = pf_svc.list_portfolios()
+    except Exception:
+        _all_portfolios_sb = []
+    if _all_portfolios_sb:
+        _ids_sb = [p["id"] for p in _all_portfolios_sb]
+        _names_sb = {p["id"]: p["name"] for p in _all_portfolios_sb}
+        _cur_sb = st.session_state.get("active_portfolio_id", _ids_sb[0])
+        if _cur_sb not in _ids_sb:
+            _cur_sb = _ids_sb[0]
+        st.markdown("<div class='section-eyebrow'>Cartera activa</div>", unsafe_allow_html=True)
+        _sel_sb = st.selectbox(
+            "Cartera activa",
+            options=_ids_sb,
+            format_func=lambda i: f"#{i} · {_names_sb[i]}",
+            index=_ids_sb.index(_cur_sb),
+            key="home_sidebar_active_portfolio",
+            label_visibility="collapsed",
+        )
+        st.session_state["active_portfolio_id"] = _sel_sb
+        set_active_portfolio(_sel_sb)
+
+        try:
+            _pv_sb = get_portfolio_value(portfolio_id=_sel_sb)
+            _cash_sb = pf_svc.cash_available(_sel_sb)
+            _p_sb = pf_svc.get_portfolio(_sel_sb)
+            _curr_sb = _p_sb["currency"] if _p_sb else "USD"
+        except Exception:
+            _pv_sb, _cash_sb, _curr_sb = {}, 0.0, "USD"
+        st.markdown(sidebar_kpi(
+            "Patrimonio",
+            fmt_money((_pv_sb.get("total_value") or 0) + _cash_sb, _curr_sb),
+        ), unsafe_allow_html=True)
+        st.markdown(sidebar_kpi(
+            "P&L total",
+            fmt_money(_pv_sb.get("total_pnl") or 0, _curr_sb),
+            delta=_pv_sb.get("total_pnl_pct"),
+        ), unsafe_allow_html=True)
+        if _pv_sb.get("total_value_after_hours") is not None:
+            st.markdown(sidebar_kpi(
+                "After hours",
+                fmt_money(_pv_sb["total_value_after_hours"], _curr_sb),
+                delta=_pv_sb.get("after_hours_delta_pct"),
+                hint="Sesión extendida USA",
+            ), unsafe_allow_html=True)
+
+    st.markdown("<div class='section-eyebrow' style='margin-top:14px;'>Atajos</div>", unsafe_allow_html=True)
+    if st.button("Abrir chat →", key="home_sb_open_chat", use_container_width=True):
+        st.switch_page("pages/1_Chat.py")
+    if st.button("Ver cartera →", key="home_sb_open_portfolio", use_container_width=True):
+        st.switch_page("pages/2_Mi_Cartera.py")
+    if st.button("Mercado →", key="home_sb_open_market", use_container_width=True):
+        st.switch_page("pages/4_Mercado.py")
 
 
 # ---- Hero -------------------------------------------------------------------
@@ -208,12 +268,30 @@ else:
 # ---- Sugerencias -----------------------------------------------------------
 section_title("Empieza por aquí", "Atajos al chat con prompts comunes")
 
-suggestions = [
-    "¿Cómo está AAPL?",
-    "Resumen de mi cartera",
-    "Noticias de NVDA",
-    "Explícame qué es un ETF",
-]
+# Sugerencias contextuales (Fase 4): si el usuario tiene posiciones, generamos
+# 4 prompts derivados de su cartera real. Si no, defaults educativos.
+def _contextual_suggestions(positions: list[dict]) -> list[str]:
+    if not positions:
+        return [
+            "¿Cómo está AAPL?",
+            "Resumen de mi cartera",
+            "Noticias de NVDA",
+            "Explícame qué es un ETF",
+        ]
+    top = sorted(positions, key=lambda p: (p.get("market_value") or 0), reverse=True)
+    biggest = top[0]["ticker"] if top else None
+    out: list[str] = ["Resumen de mi cartera"]
+    if biggest:
+        out.append(f"Noticias de {biggest}")
+        out.append(f"¿Es buen momento para vender {biggest}?")
+    if len(top) > 1:
+        out.append(f"Compara {top[0]['ticker']} vs {top[1]['ticker']}")
+    else:
+        out.append("¿Debería diversificar más?")
+    return out[:4]
+
+
+suggestions = _contextual_suggestions(positions)
 cols = st.columns(len(suggestions))
 for col, text in zip(cols, suggestions):
     with col:
@@ -221,10 +299,4 @@ for col, text in zip(cols, suggestions):
             st.session_state["prefill_prompt"] = text
             st.switch_page("pages/1_Chat.py")
 
-st.write("")
-st.markdown(
-    f"<p style='color:{COLOR_DIM};font-size:11px;margin-top:24px;'>"
-    f"Información orientativa. Este bot no constituye asesoramiento financiero. "
-    f"Datos de mercado vía Yahoo Finance.</p>",
-    unsafe_allow_html=True,
-)
+footer_disclaimer()

@@ -235,9 +235,25 @@ def build_agent() -> RunnableWithMessageHistory:
     #  3. human: el input del usuario de este turno.
     #  4. agent_scratchpad: donde el AgentExecutor escribe las llamadas a tools
     #     y las observaciones que van recibiendo durante el bucle.
+    # Inyectamos las preferencias del usuario (Fase 3) como sufijo del system
+    # prompt. Si el usuario aún no ha hecho onboarding, devuelve "" y se omite.
+    try:
+        from src.services.preferences import render_for_prompt
+        prefs_line = render_for_prompt()
+    except Exception:
+        prefs_line = ""
+    composed_system = SYSTEM_PROMPT
+    if prefs_line:
+        composed_system = (
+            SYSTEM_PROMPT
+            + "\n\nContexto del usuario (tenlo en cuenta en cualquier "
+            "recomendación o filtro de tickers):\n"
+            + prefs_line
+        )
+
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", SYSTEM_PROMPT),
+            ("system", composed_system),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),

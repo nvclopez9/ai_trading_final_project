@@ -34,7 +34,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from src.agent.agent_builder import get_session_history
 from src.services import portfolio as portfolio_svc
 from src.services import portfolios as portfolios_svc
 from src.tools.market_tools import (
@@ -57,6 +56,8 @@ COMMAND_USAGES: dict[str, str] = {
     "/vender": "/vender TICKER QTY  — propone una venta (HITL: confirmar después).",
     "/cartera": "/cartera  — posiciones de la cartera activa.",
     "/noticias": "/noticias TICKER  — últimas noticias del ticker.",
+    "/briefing": "/briefing  — resumen del día: cartera + movers de tus holdings.",
+    "/perfil": "/perfil  — muestra tu perfil (riesgo, horizonte) o edita en sidebar.",
     "/limpiar": "/limpiar  — vacía el historial de chat.",
     "/ayuda": "/ayuda  — lista de todos los comandos disponibles.",
 }
@@ -77,6 +78,9 @@ def _persist_turn(session_id: str, user_msg: str, ai_msg: str) -> None:
     coherencia conversacional (p. ej. "y dame el histórico" tras ``/precio AAPL``).
     """
     try:
+        # Import perezoso: agent_builder arrastra langchain_openai, que solo
+        # queremos cargar cuando realmente persistimos (no en tests/CLI).
+        from src.agent.agent_builder import get_session_history
         history = get_session_history(session_id)
         history.add_user_message(user_msg)
         history.add_ai_message(ai_msg)
@@ -248,6 +252,83 @@ def _cmd_ayuda() -> dict:
     return {"text": "\n".join(lines)}
 
 
+def _cmd_briefing(portfolio_id: int) -> dict:
+    """Resumen diario: snapshot de la cartera + movers de los tickers que tiene."""
+    try:
+        pid = int(portfolio_id) if portfolio_id is not None else 1
+        set_active_portfolio(pid)
+        positions = portfolio_svc.get_positions(portfolio_id=pid)
+        cash = portfolios_svc.cash_available(pid)
+        p = portfolios_svc.get_portfolio(pid)
+        name = p["name"] if p else f"#{pid}"
+        if not positions:
+            return {
+                "text": (
+                    f"**Briefing · Cartera #{pid} · {name}**\n\n"
+                    f"Sin posiciones abiertas. Cash: `${cash:,.2f}`."
+                )
+            }
+        totals = portfolio_svc.get_portfolio_value(portfolio_id=pid)
+        lines = [
+            f"**Briefing · {name}**",
+            "",
+            f"Patrimonio: `${(totals['total_value'] + cash):,.2f}`  ·  "
+            f"P&L: `{totals['total_pnl']:+,.2f}` ({totals['total_pnl_pct']:+.2f}%)",
+            "",
+            "**Movers de tus holdings**",
+        ]
+        # Ordenamos por |pnl_pct| descendente: las posiciones que más se mueven.
+        movers = sorted(
+            [pp for pp in positions if pp.get("pnl_pct") is not None],
+            key=lambda x: abs(x["pnl_pct"] or 0),
+            reverse=True,
+        )[:5]
+        for m in movers:
+            sign = "🟢" if (m["pnl_pct"] or 0) >= 0 else "🔴"
+            lines.append(
+                f"- {sign} **{m['ticker']}** "
+                f"`{(m['current_price'] or 0):.2f}` "
+                f"({(m['pnl_pct'] or 0):+.2f}%)"
+            )
+        if totals.get("total_value_after_hours") is not None:
+            lines.append("")
+            lines.append(
+                f"After hours: `${totals['total_value_after_hours']:,.2f}` "
+                f"({(totals['after_hours_delta_pct'] or 0):+.2f}%)"
+            )
+        return {"text": "\n".join(lines)}
+    except Exception as e:
+        return {"text": f"❌ Error generando briefing: {e}"}
+
+
+def _cmd_perfil() -> dict:
+    """Muestra el perfil del usuario (Fase 3)."""
+    try:
+        from src.services.preferences import get_preferences
+        p = get_preferences()
+    except Exception as e:
+        return {"text": f"❌ No pude leer las preferencias: {e}"}
+    if not p["onboarded"]:
+        return {
+            "text": (
+                "**Perfil sin definir.**\n\n"
+                "Configura tu riesgo y horizonte en la barra lateral del chat "
+                "para que el agente personalice las recomendaciones."
+            )
+        }
+    lines = [
+        "**Tu perfil**",
+        "",
+        f"- Riesgo: `{p['risk_profile']}`",
+        f"- Horizonte: `{p['time_horizon']}`",
+    ]
+    if p["favorite_sectors"]:
+        lines.append(f"- Sectores favoritos: {', '.join(p['favorite_sectors'])}")
+    if p["excluded_tickers"]:
+        lines.append(f"- Tickers a evitar: {', '.join(p['excluded_tickers'])}")
+    return {"text": "\n".join(lines)}
+
+
 # ---- Entrypoint ------------------------------------------------------------
 
 def try_handle_slash(
@@ -290,6 +371,10 @@ def try_handle_slash(
         result = _cmd_cartera(portfolio_id if portfolio_id is not None else 1)
     elif cmd == "/noticias":
         result = _cmd_noticias(args)
+    elif cmd == "/briefing":
+        result = _cmd_briefing(portfolio_id if portfolio_id is not None else 1)
+    elif cmd == "/perfil":
+        result = _cmd_perfil()
     elif cmd == "/limpiar":
         result = _cmd_limpiar(session_id)
     elif cmd == "/ayuda":

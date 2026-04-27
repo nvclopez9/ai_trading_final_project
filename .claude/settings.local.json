@@ -98,7 +98,8 @@
       "WebFetch(domain:www.sec.gov)",
       "Bash(awk '{print $NF, $5}')",
       "Bash(grep -c \"\\\\.pdf$\")",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(git *)"
     ]
   }
 }

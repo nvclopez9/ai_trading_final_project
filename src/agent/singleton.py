@@ -30,6 +30,16 @@ def get_agent():
     return build_agent()
 
 
+def rebuild_agent() -> None:
+    """Invalida el agente cacheado para forzar reconstrucción.
+
+    Lo llamamos cuando cambian las preferencias del usuario (que se inyectan
+    en el system prompt al construir el agente, así que un cambio implica
+    recompilar el prompt).
+    """
+    get_agent.clear()
+
+
 def ensure_session_id() -> str:
     """Devuelve un session_id único por pestaña del navegador."""
     if "session_id" not in st.session_state:

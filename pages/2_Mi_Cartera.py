@@ -17,8 +17,10 @@ from src.tools.portfolio_tools import set_active_portfolio
 from src.ui.components import (
     fmt_money,
     fmt_pct,
+    footer_disclaimer,
     hero,
     inject_app_styles,
+    sidebar_kpi,
     stat_strip,
     stat_tile,
 )
@@ -99,6 +101,41 @@ if _ah_total is not None:
 stat_strip(_tiles)
 
 
+# ---- Sidebar contextual: KPIs compactos + atajos -------------------------
+with st.sidebar:
+    st.markdown("<div class='section-eyebrow'>Resumen rápido</div>", unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("Patrimonio", fmt_money(total_value + cash, _currency)),
+                unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("P&L", fmt_money(total_pnl, _currency), delta=total_pnl_pct),
+                unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("Cash disponible", fmt_money(cash, _currency)),
+                unsafe_allow_html=True)
+    if _ah_total is not None:
+        st.markdown(sidebar_kpi(
+            "After hours", fmt_money(_ah_total, _currency),
+            delta=_ah_delta_pct, hint="Sesión extendida",
+        ), unsafe_allow_html=True)
+
+    if totals.get("stale_tickers"):
+        st.markdown(
+            "<div class='section-eyebrow' style='margin-top:14px;'>Sin precio</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(", ".join(totals["stale_tickers"][:8]))
+
+    st.markdown(
+        "<div class='section-eyebrow' style='margin-top:14px;'>Atajos</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("Operar en Chat →", key="cart_sb_chat", use_container_width=True):
+        st.session_state["prefill_prompt"] = "Resumen de mi cartera"
+        st.switch_page("pages/1_Chat.py")
+    if st.button("Gestionar carteras →", key="cart_sb_manage", use_container_width=True):
+        st.switch_page("pages/3_Mis_Carteras.py")
+    if st.button("Mercado →", key="cart_sb_market", use_container_width=True):
+        st.switch_page("pages/4_Mercado.py")
+
+
 # ---- Tabs -----------------------------------------------------------------
 tab_resumen, tab_watch, tab_export = st.tabs(["Resumen", "Watchlist", "Exportar"])
 
@@ -142,3 +179,5 @@ with tab_export:
             st.caption("No hay transacciones que exportar.")
     except Exception as e:
         st.warning(f"No se pudo preparar el export: {e}")
+
+footer_disclaimer()

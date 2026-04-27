@@ -120,6 +120,24 @@ def init_db() -> None:
                 except sqlite3.OperationalError:
                     pass
 
+        # User preferences (Fase 3): un único registro singleton (id=1) con
+        # perfil del usuario que se inyecta en el system prompt para
+        # personalizar las recomendaciones del agente.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                risk_profile TEXT NOT NULL DEFAULT 'moderado'
+                    CHECK (risk_profile IN ('conservador','moderado','agresivo')),
+                time_horizon TEXT NOT NULL DEFAULT 'medio'
+                    CHECK (time_horizon IN ('corto','medio','largo')),
+                favorite_sectors TEXT,
+                excluded_tickers TEXT,
+                onboarded_at TEXT
+            )
+            """
+        )
+
         # Watchlist: tickers en seguimiento (no posición) por cartera.
         cur.execute(
             """

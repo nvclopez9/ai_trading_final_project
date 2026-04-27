@@ -17,9 +17,11 @@ from src.ui.components import (
     COLOR_SURFACE,
     COLOR_TEXT,
     fmt_money,
+    footer_disclaimer,
     hero,
     inject_app_styles,
     section_title,
+    sidebar_kpi,
     stat_strip,
     stat_tile,
 )
@@ -42,6 +44,38 @@ all_portfolios = pf_svc.list_portfolios()
 if not all_portfolios:
     st.error("No hay carteras en la base de datos. Reinicia la app para que se cree la Default.")
     st.stop()
+
+
+# ---- Sidebar contextual: agregado de TODAS las carteras ------------------
+with st.sidebar:
+    st.markdown("<div class='section-eyebrow'>Agregado total</div>", unsafe_allow_html=True)
+    _agg_value = 0.0
+    _agg_pnl = 0.0
+    _agg_cash = 0.0
+    _agg_cost = 0.0
+    for _p in all_portfolios:
+        try:
+            _t = pf_service.get_portfolio_value(portfolio_id=_p["id"])
+            _agg_value += _t.get("total_value") or 0
+            _agg_pnl += _t.get("total_pnl") or 0
+            _agg_cost += _t.get("total_cost") or 0
+            _agg_cash += pf_svc.cash_available(_p["id"]) or 0
+        except Exception:
+            continue
+    _agg_pct = (_agg_pnl / _agg_cost * 100) if _agg_cost else 0
+    st.markdown(sidebar_kpi("Carteras", str(len(all_portfolios))),
+                unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("Patrimonio total", fmt_money(_agg_value + _agg_cash)),
+                unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("P&L agregado", fmt_money(_agg_pnl), delta=_agg_pct),
+                unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("Cash agregado", fmt_money(_agg_cash)),
+                unsafe_allow_html=True)
+
+    st.markdown("<div class='section-eyebrow' style='margin-top:14px;'>Atajos</div>",
+                unsafe_allow_html=True)
+    if st.button("Ver cartera activa →", key="mis_sb_active", use_container_width=True):
+        st.switch_page("pages/2_Mi_Cartera.py")
 
 names_by_id = {p["id"]: p["name"] for p in all_portfolios}
 ids = [p["id"] for p in all_portfolios]
@@ -301,3 +335,5 @@ for i in range(0, len(all_portfolios), 2):
             unsafe_allow_html=True,
         )
     st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+
+footer_disclaimer()

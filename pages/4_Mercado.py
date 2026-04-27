@@ -38,10 +38,12 @@ from src.ui.components import (
     fmt_market_cap,
     fmt_money,
     fmt_pct,
+    footer_disclaimer,
     hero,
     inject_app_styles,
     news_card,
     section_title,
+    sidebar_kpi,
     stat_strip,
     stat_tile,
 )
@@ -71,6 +73,38 @@ POPULAR_TICKERS = [
     "ASML.AS", "SAP.DE", "MC.PA", "NESN.SW",
     "VWCE.DE", "IWDA.AS",
 ]
+
+
+# ─── Sidebar contextual: ticker activo + watchlist + comparar -──────────────
+with st.sidebar:
+    _active_ticker = st.session_state.get("active_ticker", "AAPL")
+    st.markdown("<div class='section-eyebrow'>Ticker activo</div>", unsafe_allow_html=True)
+    st.markdown(sidebar_kpi("Símbolo", _active_ticker), unsafe_allow_html=True)
+
+    st.markdown("<div class='section-eyebrow' style='margin-top:14px;'>Watchlist</div>",
+                unsafe_allow_html=True)
+    try:
+        from src.services import watchlist as wl_svc
+        _wl = wl_svc.list_for(_active_pid) or []
+    except Exception:
+        _wl = []
+    if _wl:
+        for w in _wl[:10]:
+            t = w.get("ticker") if isinstance(w, dict) else w
+            if st.button(t, key=f"market_sb_wl_{t}", use_container_width=True):
+                st.session_state["active_ticker"] = t
+                st.rerun()
+    else:
+        st.caption("Vacía. Añade desde Mi Cartera.")
+
+    st.markdown("<div class='section-eyebrow' style='margin-top:14px;'>Comparar rápido</div>",
+                unsafe_allow_html=True)
+    _cmp_a = st.text_input("A", value=_active_ticker, key="market_sb_cmp_a")
+    _cmp_b = st.text_input("B", value="MSFT" if _active_ticker != "MSFT" else "AAPL",
+                           key="market_sb_cmp_b")
+    if st.button("Comparar en chat →", key="market_sb_cmp_btn", use_container_width=True):
+        st.session_state["prefill_prompt"] = f"Compara {_cmp_a.upper()} vs {_cmp_b.upper()}"
+        st.switch_page("pages/1_Chat.py")
 
 
 # ─── Selector de ticker ─────────────────────────────────────────────────────
@@ -493,3 +527,5 @@ with tab_news:
         unsafe_allow_html=True,
     )
     render_news_panel(ticker, limit=6)
+
+footer_disclaimer()
