@@ -5,7 +5,7 @@ Layout estilo Robinhood / pelositracker:
 - Hero del ticker (nombre + precio + delta) en card grande.
 - Strip de KPIs (volumen, market cap, P/E, apertura, anterior cierre).
 - Chart de precio con selector de periodo en píldoras.
-- Compra rápida inline.
+- Operar: solo vía chat (HITL).
 - Tabs: Resumen, Comparar, Análisis, Noticias.
 
 Toda la lógica de negocio (yfinance, agente, portfolio_buy/sell, switch_page,
@@ -56,7 +56,7 @@ inject_app_styles()
 
 hero(
     "Mercado",
-    "Precio en vivo, fundamentales, noticias y compra rápida sobre cualquier ticker.",
+    "Precio en vivo, fundamentales, gráficos y noticias de cualquier ticker. Operativa vía chat.",
 )
 
 agent = get_agent()
@@ -211,11 +211,25 @@ delta_color = color_for_delta(delta_abs)
 delta_abs_str = fmt_money(delta_abs, currency) if delta_abs is not None else "—"
 big_delta_badge = delta_badge(delta_pct, big=True) if delta_pct is not None else ""
 
+try:
+    from src.ui.logos import get_logo_url as _get_logo_url
+    _logo_url = _get_logo_url(ticker)
+except Exception:
+    _logo_url = None
+_logo_block = (
+    f"<img src='{_logo_url}' alt='{ticker}' loading='lazy' "
+    f"onerror=\"this.style.display='none'\" "
+    f"style='width:56px;height:56px;border-radius:12px;object-fit:contain;"
+    f"background:#1B2230;border:1px solid #252D3D;flex-shrink:0;'/>"
+) if _logo_url else ""
+
 st.markdown(
     f"""
     <div class="pill-card" style="padding:24px;margin-bottom:18px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
-        <div>
+        <div style="display:flex;gap:16px;align-items:flex-start;min-width:0;">
+          {_logo_block}
+          <div>
           <div style="font-family:{_MONO};font-size:2rem;font-weight:700;
                       letter-spacing:0.6px;color:{COLOR_TEXT};line-height:1.05;">
             {ticker}
@@ -225,6 +239,7 @@ st.markdown(
           </div>
           <div style="color:{COLOR_DIM};font-size:12px;margin-top:8px;">
             {q['sector'] or '—'} · {q['industry'] or '—'}
+          </div>
           </div>
         </div>
         <div style="text-align:right;">
@@ -280,78 +295,38 @@ period = st.session_state["chart_period"]
 with st.spinner("Cargando gráfico..."):
     fig = price_history_chart(ticker, period)
 if fig is None:
-    st.warning(f"No se pudo cargar el histórico de {ticker} para {period}.")
+    err = getattr(price_history_chart, "last_error", None)
+    detail = f" Detalle: `{err}`" if err else ""
+    st.warning(
+        f"No se pudo cargar el histórico de {ticker} para {period}. "
+        "Posibles causas: ticker no disponible en Yahoo Finance, rate-limit "
+        "temporal o sin conexión." + detail
+    )
 else:
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ─── Compra rápida inline ───────────────────────────────────────────────────
-section_title("Compra rápida", "Operación simulada sobre la cartera activa.")
-
+# ─── Operar: solo vía chat (HITL real) ──────────────────────────────────────
 _active = pf_svc.get_portfolio(_active_pid)
 if _active:
     cash_avail = pf_svc.cash_available(_active["id"])
     st.markdown(
-        f"<div style='color:{COLOR_MUTED};font-size:13px;margin-bottom:10px;'>"
+        f"<div style='color:{COLOR_MUTED};font-size:13px;margin:14px 0;'>"
         f"Cartera activa: <b style='color:{COLOR_TEXT};'>{_active['name']}</b> · "
         f"Cash disponible: <b style='color:{COLOR_TEXT};'>"
         f"{fmt_money(cash_avail, _active['currency'])}</b>"
         "</div>",
         unsafe_allow_html=True,
     )
-
-with st.container():
-    st.markdown('<div class="pill-card" style="padding:20px;">', unsafe_allow_html=True)
-    qty_col, buy_col, sell_col = st.columns([2, 1, 1])
-    with qty_col:
-        trade_qty = st.number_input(
-            "Cantidad",
-            min_value=0.0001,
-            step=1.0,
-            value=1.0,
-            key=f"trade_qty_{ticker}",
-        )
-    with buy_col:
-        st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
-        buy_clicked = st.button(
-            "Comprar", type="primary", use_container_width=True, key=f"buy_{ticker}"
-        )
-    with sell_col:
-        st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
-        sell_clicked = st.button(
-            "Vender", use_container_width=True, key=f"sell_{ticker}"
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-if buy_clicked:
-    try:
-        r = pf_service.buy(ticker, float(trade_qty), portfolio_id=_active_pid)
-        st.success(
-            f"Compra ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
-            f"Posición total: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
-        )
-    except ValueError as e:
-        st.error(str(e))
-    except Exception as e:
-        st.error(f"Error inesperado: {e}")
-
-if sell_clicked:
-    try:
-        r = pf_service.sell(ticker, float(trade_qty), portfolio_id=_active_pid)
-        if r["new_qty"] == 0:
-            st.success(
-                f"Venta ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
-                "Posición cerrada."
-            )
-        else:
-            st.success(
-                f"Venta ejecutada: {r['qty']:g} {r['ticker']} a ${r['price']:.2f}. "
-                f"Restante: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
-            )
-    except ValueError as e:
-        st.error(str(e))
-    except Exception as e:
-        st.error(f"Error inesperado: {e}")
+op_col_b, op_col_s, _ = st.columns([1, 1, 4])
+if op_col_b.button(f"Comprar {ticker} en Chat", type="primary",
+                   key=f"market_buy_to_chat_{ticker}", use_container_width=True):
+    st.session_state["prefill_prompt"] = f"Compra acciones de {ticker}"
+    st.switch_page("pages/1_Chat.py")
+if op_col_s.button(f"Vender {ticker} en Chat",
+                   key=f"market_sell_to_chat_{ticker}", use_container_width=True):
+    st.session_state["prefill_prompt"] = f"Vende acciones de {ticker}"
+    st.switch_page("pages/1_Chat.py")
 
 
 # ─── Tabs ───────────────────────────────────────────────────────────────────

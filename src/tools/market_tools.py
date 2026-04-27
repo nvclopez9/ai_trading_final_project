@@ -274,6 +274,24 @@ def _extract_news_item(item: dict) -> dict | None:
         except Exception:
             date_str = None
 
+    # Thumbnail (legacy): item["thumbnail"]["resolutions"] -> [{url, width, ...}]
+    thumbnail_url = None
+    thumb = item.get("thumbnail") or {}
+    resolutions = thumb.get("resolutions") if isinstance(thumb, dict) else None
+    if isinstance(resolutions, list) and resolutions:
+        # Preferimos resolución intermedia (~140px) si existe; si no, la primera.
+        chosen = None
+        for r in resolutions:
+            if not isinstance(r, dict):
+                continue
+            w = r.get("width") or 0
+            if 100 <= w <= 240:
+                chosen = r
+                break
+        chosen = chosen or next((r for r in resolutions if isinstance(r, dict)), None)
+        if chosen and chosen.get("url"):
+            thumbnail_url = chosen.get("url")
+
     # Esquema moderno: {"content": {...}}
     if not title:
         content = item.get("content") or {}
@@ -284,6 +302,24 @@ def _extract_news_item(item: dict) -> dict | None:
         pub = content.get("pubDate") or content.get("displayTime")
         if pub and not date_str:
             date_str = str(pub)[:10]
+        # Thumbnail moderno: content.thumbnail.resolutions o content.thumbnail.originalUrl
+        if not thumbnail_url:
+            cthumb = content.get("thumbnail") or {}
+            cres = cthumb.get("resolutions") if isinstance(cthumb, dict) else None
+            if isinstance(cres, list):
+                chosen = None
+                for r in cres:
+                    if not isinstance(r, dict):
+                        continue
+                    w = r.get("width") or 0
+                    if 100 <= w <= 240:
+                        chosen = r
+                        break
+                chosen = chosen or next((r for r in cres if isinstance(r, dict)), None)
+                if chosen and chosen.get("url"):
+                    thumbnail_url = chosen.get("url")
+            if not thumbnail_url and isinstance(cthumb, dict):
+                thumbnail_url = cthumb.get("originalUrl") or cthumb.get("url")
 
     if not title:
         return None
@@ -292,6 +328,7 @@ def _extract_news_item(item: dict) -> dict | None:
         "date": date_str or "s/f",
         "source": source or "desconocido",
         "link": link or "",
+        "thumbnail": thumbnail_url,
     }
 
 

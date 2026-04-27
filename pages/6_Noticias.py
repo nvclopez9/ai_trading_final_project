@@ -177,7 +177,14 @@ def _render_news_item(n: dict, ticker: str, ctx: str) -> None:
     show_ticker = (n.get("_origin") if ctx == "portal" else ticker) or ticker
 
     st.markdown(
-        news_card(title=title, source=source, ts=ts, ticker=show_ticker, url=n.get("link")),
+        news_card(
+            title=title,
+            source=source,
+            ts=ts,
+            ticker=show_ticker,
+            url=n.get("link"),
+            thumbnail=n.get("thumbnail"),
+        ),
         unsafe_allow_html=True,
     )
     st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)

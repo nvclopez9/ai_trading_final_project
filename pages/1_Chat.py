@@ -349,196 +349,69 @@ def _handle_user_message(user_input: str) -> None:
     st.session_state.follow_ups = _suggest_followups(answer, tool_calls)
 
 
-# ─── Layout principal: chat (3) + panel lateral (1) ────────────────────────
-chat_col, side_col = st.columns([3, 1], gap="large")
+# ─── Cuerpo principal del chat (ancho completo; lateral va en sidebar) ─────
+quick_prompts = [
+    "¿Cómo está AAPL?",
+    "Resumen de mi cartera",
+    "Noticias de NVDA",
+    "Explícame qué es un ETF",
+]
+qcols = st.columns(len(quick_prompts))
+for col, qp in zip(qcols, quick_prompts):
+    with col:
+        if st.button(qp, key=f"chat_quick_{qp}", use_container_width=True):
+            st.session_state["pending_prompt"] = qp
+            st.rerun()
 
-with chat_col:
-    # Sugerencias rápidas (pills)
-    quick_prompts = [
-        "¿Cómo está AAPL?",
-        "Resumen de mi cartera",
-        "Noticias de NVDA",
-        "Explícame qué es un ETF",
-    ]
-    qcols = st.columns(len(quick_prompts))
-    for col, qp in zip(qcols, quick_prompts):
+st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+# Render del historial
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        content = msg["content"]
+        if msg["role"] == "assistant":
+            content = _escape_dollars(content)
+        st.markdown(content)
+
+# HITL para slash /comprar /vender
+if st.session_state.pending_trade is not None:
+    payload = st.session_state.pending_trade
+    side = payload.get("side", "BUY")
+    label = "Confirmar compra" if side == "BUY" else "Confirmar venta"
+    c1, c2, _spacer = st.columns([1, 1, 4])
+    if c1.button(label, type="primary", key="confirm_pending_trade"):
+        active_pid = st.session_state.get("active_portfolio_id", 1)
+        result_msg = execute_pending_trade(payload, active_pid)
+        st.session_state.messages.append({"role": "assistant", "content": result_msg})
+        try:
+            get_session_history(session_id).add_ai_message(result_msg)
+        except Exception:
+            pass
+        st.session_state.pending_trade = None
+        st.rerun()
+    if c2.button("Cancelar", key="cancel_pending_trade"):
+        st.session_state.messages.append({"role": "assistant", "content": "Operación cancelada."})
+        st.session_state.pending_trade = None
+        st.rerun()
+
+# Follow-up chips
+if st.session_state.follow_ups and st.session_state.pending_trade is None:
+    fu_cols = st.columns(len(st.session_state.follow_ups))
+    for i, (col, sug) in enumerate(zip(fu_cols, st.session_state.follow_ups)):
         with col:
-            if st.button(qp, key=f"chat_quick_{qp}", use_container_width=True):
-                st.session_state["pending_prompt"] = qp
+            if st.button(sug, key=f"followup_{i}_{sug[:30]}", use_container_width=True):
+                st.session_state["pending_prompt"] = sug
+                st.session_state.follow_ups = []
                 st.rerun()
 
-    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+# Procesar prompt pendiente o input nuevo
+pending = st.session_state.pop("pending_prompt", None) or st.session_state.pop("prefill_prompt", None)
+if pending:
+    _handle_user_message(pending)
 
-    # Render del historial
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            content = msg["content"]
-            if msg["role"] == "assistant":
-                content = _escape_dollars(content)
-            st.markdown(content)
-
-    # HITL para slash /comprar /vender
-    if st.session_state.pending_trade is not None:
-        payload = st.session_state.pending_trade
-        side = payload.get("side", "BUY")
-        label = "Confirmar compra" if side == "BUY" else "Confirmar venta"
-        c1, c2, _spacer = st.columns([1, 1, 4])
-        if c1.button(label, type="primary", key="confirm_pending_trade"):
-            active_pid = st.session_state.get("active_portfolio_id", 1)
-            result_msg = execute_pending_trade(payload, active_pid)
-            st.session_state.messages.append({"role": "assistant", "content": result_msg})
-            try:
-                get_session_history(session_id).add_ai_message(result_msg)
-            except Exception:
-                pass
-            st.session_state.pending_trade = None
-            st.rerun()
-        if c2.button("Cancelar", key="cancel_pending_trade"):
-            st.session_state.messages.append({"role": "assistant", "content": "Operación cancelada."})
-            st.session_state.pending_trade = None
-            st.rerun()
-
-    # Follow-up chips
-    if st.session_state.follow_ups and st.session_state.pending_trade is None:
-        fu_cols = st.columns(len(st.session_state.follow_ups))
-        for i, (col, sug) in enumerate(zip(fu_cols, st.session_state.follow_ups)):
-            with col:
-                if st.button(sug, key=f"followup_{i}_{sug[:30]}", use_container_width=True):
-                    st.session_state["pending_prompt"] = sug
-                    st.session_state.follow_ups = []
-                    st.rerun()
-
-    # Procesar prompt pendiente o input nuevo
-    pending = st.session_state.pop("pending_prompt", None) or st.session_state.pop("prefill_prompt", None)
-    if pending:
-        _handle_user_message(pending)
-
-    user_input = st.chat_input("Pregunta sobre un ticker, p. ej. '¿Cómo está AAPL?' o /ayuda")
-    if user_input:
-        _handle_user_message(user_input)
-
-
-with side_col:
-    # Cartera activa
-    st.markdown(
-        f"<div class='section-eyebrow'>Cartera activa</div>",
-        unsafe_allow_html=True,
-    )
-    try:
-        portfolios_list = pf_svc.list_portfolios()
-    except Exception:
-        portfolios_list = []
-    if portfolios_list:
-        ids = [p["id"] for p in portfolios_list]
-        names_by_id = {p["id"]: p["name"] for p in portfolios_list}
-        current = st.session_state.get("active_portfolio_id", ids[0])
-        if current not in ids:
-            current = ids[0]
-        sel = st.selectbox(
-            "Cartera activa",
-            options=ids,
-            format_func=lambda i: f"#{i} · {names_by_id[i]}",
-            index=ids.index(current),
-            key="chat_active_portfolio_selector",
-            label_visibility="collapsed",
-        )
-        if sel != st.session_state.get("active_portfolio_id"):
-            st.session_state["active_portfolio_id"] = sel
-            set_active_portfolio(sel)
-            st.toast(f"Cartera activa: {names_by_id[sel]}", icon="🧺")
-            st.rerun()
-        else:
-            st.session_state["active_portfolio_id"] = sel
-            set_active_portfolio(sel)
-    else:
-        st.caption("No hay carteras disponibles.")
-
-    # Perfil
-    _prefs = get_preferences()
-    with st.expander(
-        f"Perfil · {_prefs['risk_profile']} / {_prefs['time_horizon']}"
-        + (" ✓" if _prefs["onboarded"] else ""),
-        expanded=False,
-    ):
-        with st.form("prefs_form_chat"):
-            risk = st.selectbox(
-                "Riesgo",
-                ["conservador", "moderado", "agresivo"],
-                index=["conservador", "moderado", "agresivo"].index(_prefs["risk_profile"]),
-            )
-            horizon = st.selectbox(
-                "Horizonte",
-                ["corto", "medio", "largo"],
-                index=["corto", "medio", "largo"].index(_prefs["time_horizon"]),
-                help="Corto = días/semanas, Medio = meses, Largo = años.",
-            )
-            sectors = st.text_input(
-                "Sectores favoritos",
-                value=", ".join(_prefs["favorite_sectors"]),
-                placeholder="tech, salud",
-            )
-            excluded = st.text_input(
-                "Tickers a evitar",
-                value=", ".join(_prefs["excluded_tickers"]),
-                placeholder="MO, XOM",
-            )
-            if st.form_submit_button("Guardar"):
-                update_preferences(
-                    risk_profile=risk,
-                    time_horizon=horizon,
-                    favorite_sectors=[s.strip() for s in sectors.split(",") if s.strip()],
-                    excluded_tickers=[t.strip().upper() for t in excluded.split(",") if t.strip()],
-                )
-                rebuild_agent()
-                st.toast("Preferencias guardadas.", icon="✅")
-                st.rerun()
-
-    # Cómo usar
-    st.markdown(
-        f"""
-        <div style="background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};
-                    border-radius:12px;padding:14px 16px;margin-top:14px;">
-          <div class='section-eyebrow' style='margin-bottom:8px;'>Cómo usar</div>
-          <ul style='margin:0;padding-left:18px;color:{COLOR_TEXT};font-size:12px;
-                     line-height:1.6;'>
-            <li>Cotizaciones: <em>"precio de TSLA"</em></li>
-            <li>Operar: <em>"compra 5 NVDA"</em></li>
-            <li>Comparar: <em>"AAPL vs MSFT"</em></li>
-            <li>Slash: <code>/precio AAPL</code>, <code>/cartera</code></li>
-          </ul>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Acciones recientes
-    recent = st.session_state.get("recent_tool_calls", [])
-    if recent:
-        st.markdown(
-            f"<div class='section-eyebrow' style='margin:18px 0 8px 0;'>Acciones recientes</div>",
-            unsafe_allow_html=True,
-        )
-        rows_html = ""
-        for r in reversed(recent[-5:]):
-            tool = r.get("tool", "?")
-            args = r.get("args_summary", "")
-            ts = r.get("ts", "")
-            rows_html += (
-                f"<div style='display:flex;justify-content:space-between;gap:6px;"
-                f"font-family:{_MONO};font-size:11px;padding:6px 0;"
-                f"border-bottom:1px solid {COLOR_BORDER};'>"
-                f"<span style='color:{COLOR_TEXT};white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;flex:0 0 auto;max-width:130px;'>{tool}</span>"
-                f"<span style='color:{COLOR_MUTED};white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;flex:1 1 auto;'>{args}</span>"
-                f"<span style='color:{COLOR_DIM};flex:0 0 auto;'>{ts}</span>"
-                f"</div>"
-            )
-        st.markdown(
-            f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
-            f"border-radius:12px;padding:6px 14px;'>{rows_html}</div>",
-            unsafe_allow_html=True,
-        )
+user_input = st.chat_input("Pregunta sobre un ticker, p. ej. '¿Cómo está AAPL?' o /ayuda")
+if user_input:
+    _handle_user_message(user_input)
 
 
 # ─── Catálogo de prompts (al final, plegado) ────────────────────────────────

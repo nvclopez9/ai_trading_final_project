@@ -88,11 +88,27 @@ def _card_html(r: dict) -> str:
             f"<div style='color:{COLOR_DIM};font-size:11px;font-family:JetBrains Mono,monospace;"
             f"margin-top:6px;'>{volume / 1e6:.1f}M vol</div>"
         )
+    try:
+        from src.ui.logos import get_logo_url as _get_logo_url
+        _logo_url = _get_logo_url(ticker)
+    except Exception:
+        _logo_url = None
+    logo_html = ""
+    if _logo_url:
+        logo_html = (
+            f"<img src='{_logo_url}' alt='{ticker}' loading='lazy' "
+            f"onerror=\"this.style.display='none'\" "
+            f"style='width:24px;height:24px;border-radius:50%;object-fit:contain;"
+            f"background:#1B2230;border:1px solid #252D3D;flex-shrink:0;'/>"
+        )
     return (
         f"<div style='background:{COLOR_SURFACE};border:1px solid #252D3D;"
         f"border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:8px;height:100%;'>"
+        f"<div style='display:flex;gap:8px;align-items:center;'>"
+        f"{logo_html}"
         f"<div style='font-family:JetBrains Mono,monospace;font-weight:700;letter-spacing:0.4px;"
         f"font-size:1.1rem;color:{COLOR_TEXT};'>{ticker}</div>"
+        f"</div>"
         f"<div style='font-family:JetBrains Mono,monospace;font-size:1.1rem;font-weight:600;"
         f"color:{COLOR_TEXT};'>{price:.2f}</div>"
         f"<div>{delta_badge(pct, big=True)}</div>"

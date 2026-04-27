@@ -26,11 +26,40 @@ _LAYOUT_BASE = dict(
 
 
 def price_history_chart(ticker: str, period: str = "6mo"):
+    """Devuelve un go.Figure o None.
+
+    En caso de error (yfinance rate limit, ticker desconocido, red caída, etc.)
+    intentamos un fallback de menor periodo y, si tampoco hay datos, devolvemos
+    None pero registramos la causa en ``last_error`` para que el caller pueda
+    mostrarla al usuario en lugar del genérico "no se pudo cargar".
+    """
+    symbol = ticker.strip().upper()
+    last_err: str | None = None
+    # Intento principal + un fallback más corto. Si yfinance devuelve empty
+    # con period=6mo (caso reportado por el usuario), bajamos a 3mo.
+    fallback_periods = [period]
+    if period != "1mo":
+        fallback_periods.append("3mo" if period != "3mo" else "1mo")
+    hist = None
+    for p in fallback_periods:
+        try:
+            t = yf.Ticker(symbol)
+            # auto_adjust=False para tener Close limpio; threads=False evita
+            # warnings recientes de yfinance al combinar threads + cache.
+            hist = t.history(period=p, auto_adjust=False)
+            if hist is not None and not hist.empty:
+                period = p  # reflejar el periodo realmente cargado
+                break
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            hist = None
+    if hist is None or hist.empty:
+        # Adjunta el motivo (si lo hay) al return None mediante atributo del
+        # módulo. Es una forma simple de exponerlo sin romper la API.
+        price_history_chart.last_error = last_err or "Sin datos para el periodo solicitado."
+        return None
+    price_history_chart.last_error = None
     try:
-        symbol = ticker.strip().upper()
-        hist = yf.Ticker(symbol).history(period=period)
-        if hist.empty:
-            return None
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=hist.index,
@@ -48,8 +77,13 @@ def price_history_chart(ticker: str, period: str = "6mo"):
         )
         fig.update_layout(**layout)
         return fig
-    except Exception:
+    except Exception as e:
+        price_history_chart.last_error = f"{type(e).__name__}: {e}"
         return None
+
+
+# Inicializar el atributo para que el getattr posterior nunca falle.
+price_history_chart.last_error = None
 
 
 def portfolio_allocation_pie(positions: list[dict]):

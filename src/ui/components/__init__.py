@@ -183,8 +183,31 @@ def llm_badge(provider_label: str, model: str) -> str:
     )
 
 
-def stat_tile(label: str, value: str, delta: float | None = None, hint: str | None = None) -> str:
-    """HTML de un tile de estadística (KPI grande con label en mayúsculas pequeñas)."""
+def _value_color(value: str) -> str:
+    """Devuelve el color a aplicar al valor de un tile en función de su signo.
+
+    Heurística: si el valor empieza por '+' (con o sin espacio) o contiene
+    una cifra positiva precedida por '+', usa COLOR_UP; si empieza por '-'
+    o '−' (guion unicode), usa COLOR_DOWN; si no, COLOR_TEXT (neutral).
+    Útil para que P&L y porcentajes se vean SIEMPRE coloreados.
+    """
+    s = (value or "").strip()
+    if s.startswith(("+",)):
+        return COLOR_UP
+    # Algunos formatos de número usan el guion largo unicode (−). Cubrimos ambos.
+    if s.startswith(("-", "−")):
+        return COLOR_DOWN
+    return COLOR_TEXT
+
+
+def stat_tile(label: str, value: str, delta: float | None = None,
+              hint: str | None = None, tone: str = "auto") -> str:
+    """HTML de un tile de estadística (KPI grande con label en mayúsculas pequeñas).
+
+    ``tone``: ``"auto"`` (por defecto) colorea el valor según signo (+/−);
+    ``"neutral"`` lo deja en COLOR_TEXT. Útil para forzar neutral en valores
+    como "Patrimonio" donde el signo no aporta semántica.
+    """
     delta_html = ""
     if delta is not None:
         delta_html = f"<div style='margin-top:8px;'>{delta_badge(delta)}</div>"
@@ -193,14 +216,21 @@ def stat_tile(label: str, value: str, delta: float | None = None, hint: str | No
         hint_html = (
             f"<div style='color:{COLOR_DIM};font-size:11px;margin-top:6px;'>{hint}</div>"
         )
+    val_color = _value_color(value) if tone == "auto" else COLOR_TEXT
+    # white-space:nowrap + min-width:0 evita el salto de línea cuando el
+    # valor es ligeramente más ancho que la columna (caso "-99,21 $" en una
+    # franja de 5+ tiles). clamp() reduce el font-size si la columna es
+    # estrecha sin perder la sensación de cifra grande en pantallas anchas.
     return (
         f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
         f"border-radius:14px;padding:16px 14px;height:100%;min-height:90px;"
-        f"box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-start;'>"
+        f"box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-start;"
+        f"min-width:0;overflow:hidden;'>"
         f"<div style='font-size:11px;text-transform:uppercase;letter-spacing:0.1em;"
         f"color:{COLOR_MUTED};font-weight:500;margin-bottom:12px;'>{label}</div>"
-        f"<div style='font-family:{_MONO};font-size:1.4rem;font-weight:600;"
-        f"color:{COLOR_TEXT};letter-spacing:-0.01em;line-height:1.15;'>{value}</div>"
+        f"<div style='font-family:{_MONO};font-size:clamp(1.05rem, 1.6vw, 1.4rem);"
+        f"font-weight:600;color:{val_color};letter-spacing:-0.01em;line-height:1.15;"
+        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{value}</div>"
         f"{delta_html}{hint_html}"
         f"</div>"
     )
@@ -250,8 +280,25 @@ def holding_card(ticker: str, qty: float, value: float | None,
                  pnl_pct: float | None, currency: str = "USD",
                  avg_price: float | None = None,
                  after_hours_price: float | None = None,
-                 after_hours_change_pct: float | None = None) -> str:
+                 after_hours_change_pct: float | None = None,
+                 logo_url: str | None = None) -> str:
     val_str = fmt_money(value, currency) if value is not None else "—"
+    # Logo: si no se pasa explícito, intentamos resolverlo (cacheado).
+    if logo_url is None:
+        try:
+            from src.ui.logos import get_logo_url
+            logo_url = get_logo_url(ticker)
+        except Exception:
+            logo_url = None
+    logo_html = ""
+    if logo_url:
+        logo_html = (
+            f"<img src='{logo_url}' alt='{ticker}' loading='lazy' "
+            f"onerror=\"this.style.display='none'\" "
+            f"style='width:26px;height:26px;border-radius:50%;object-fit:contain;"
+            f"background:{COLOR_SURFACE_2};border:1px solid {COLOR_BORDER};"
+            f"flex-shrink:0;'/>"
+        )
     avg_html = (
         f"<div style='color:{COLOR_DIM};font-size:11px;margin-top:4px;font-family:{_MONO};'>"
         f"avg {fmt_money(avg_price, currency)}</div>"
@@ -277,10 +324,13 @@ def holding_card(ticker: str, qty: float, value: float | None,
         f"border-radius:14px;padding:14px 14px 16px;display:flex;flex-direction:column;gap:4px;"
         f"transition:border-color 140ms ease;height:100%;min-height:130px;box-sizing:border-box;'>"
         f"<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:8px;'>"
+        f"<div style='display:flex;gap:10px;align-items:center;min-width:0;'>"
+        f"{logo_html}"
         f"<div style='min-width:0;'>"
         f"<div style='font-family:{_MONO};font-weight:700;letter-spacing:0.4px;"
         f"font-size:1rem;color:{COLOR_TEXT};'>{ticker}</div>"
         f"<div style='color:{COLOR_MUTED};font-size:12px;margin-top:3px;'>{fmt_qty(qty)} uds</div>"
+        f"</div>"
         f"</div>"
         f"{delta_badge(pnl_pct)}"
         f"</div>"
@@ -292,7 +342,8 @@ def holding_card(ticker: str, qty: float, value: float | None,
 
 
 def market_row(ticker: str, price: float | None, change_pct: float | None,
-               volume: float | None = None) -> str:
+               volume: float | None = None,
+               logo_url: str | None = None) -> str:
     pct = change_pct if change_pct is not None else 0.0
     color = COLOR_UP if pct >= 0 else COLOR_DOWN
     sign = "+" if pct >= 0 else ""
@@ -306,9 +357,27 @@ def market_row(ticker: str, price: float | None, change_pct: float | None,
         f"{(volume / 1e6 if volume else 0):.1f} M</span>"
         if volume is not None else ""
     )
+    if logo_url is None:
+        try:
+            from src.ui.logos import get_logo_url
+            logo_url = get_logo_url(ticker)
+        except Exception:
+            logo_url = None
+    logo_html = ""
+    if logo_url:
+        logo_html = (
+            f"<img src='{logo_url}' alt='{ticker}' loading='lazy' "
+            f"onerror=\"this.style.display='none'\" "
+            f"style='width:24px;height:24px;border-radius:50%;object-fit:contain;"
+            f"background:{COLOR_SURFACE_2};border:1px solid {COLOR_BORDER};"
+            f"flex-shrink:0;'/>"
+        )
     return (
         f"<div class='ticker-row'>"
+        f"<div style='display:flex;gap:10px;align-items:center;min-width:0;'>"
+        f"{logo_html}"
         f"<span class='sym'>{ticker}</span>"
+        f"</div>"
         f"<div style='display:flex;gap:14px;align-items:center;'>"
         f"{vol_html}{price_html}{pct_html}"
         f"</div>"
@@ -336,7 +405,8 @@ def trade_row(ts: str, ticker: str, side: str, qty: float, price: float,
 
 
 def news_card(title: str, source: str, ts: str | None,
-              ticker: str | None = None, url: str | None = None) -> str:
+              ticker: str | None = None, url: str | None = None,
+              thumbnail: str | None = None) -> str:
     rel = fmt_relative_time(ts) if ts else ""
     ticker_pill = ""
     if ticker:
@@ -352,10 +422,7 @@ def news_card(title: str, source: str, ts: str | None,
     ) if url else (
         f"<div style='color:{COLOR_TEXT};font-weight:600;font-size:15px;line-height:1.4;'>{title}</div>"
     )
-    return (
-        f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
-        f"border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;"
-        f"height:100%;min-height:124px;box-sizing:border-box;'>"
+    inner_content = (
         f"<div style='display:flex;gap:8px;align-items:center;justify-content:space-between;'>"
         f"<div style='display:flex;gap:8px;align-items:center;'>"
         f"{ticker_pill}"
@@ -364,6 +431,29 @@ def news_card(title: str, source: str, ts: str | None,
         f"<span style='color:{COLOR_DIM};font-size:11px;white-space:nowrap;'>{rel}</span>"
         f"</div>"
         f"{headline}"
+    )
+    if thumbnail:
+        thumb_html = (
+            f"<img src='{thumbnail}' alt='' loading='lazy' "
+            f"onerror=\"this.style.display='none'\" "
+            f"style='width:104px;height:104px;border-radius:10px;object-fit:cover;"
+            f"flex-shrink:0;background:{COLOR_SURFACE_2};border:1px solid {COLOR_BORDER};'/>"
+        )
+        return (
+            f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
+            f"border-radius:12px;padding:16px 18px;display:flex;gap:14px;"
+            f"align-items:flex-start;height:100%;min-height:124px;box-sizing:border-box;'>"
+            f"{thumb_html}"
+            f"<div style='display:flex;flex-direction:column;gap:10px;flex:1;min-width:0;'>"
+            f"{inner_content}"
+            f"</div>"
+            f"</div>"
+        )
+    return (
+        f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
+        f"border-radius:12px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;"
+        f"height:100%;min-height:124px;box-sizing:border-box;'>"
+        f"{inner_content}"
         f"</div>"
     )
 
@@ -409,20 +499,25 @@ def footer_disclaimer() -> None:
 
 
 def sidebar_kpi(label: str, value: str, hint: str | None = None,
-                delta: float | None = None) -> str:
-    """Mini-KPI compacto pensado para el sidebar (más estrecho que stat_tile)."""
+                delta: float | None = None, tone: str = "auto") -> str:
+    """Mini-KPI compacto pensado para el sidebar (más estrecho que stat_tile).
+
+    ``tone="auto"`` colorea el valor según signo (P&L con sus colores).
+    """
     delta_html = f"<div style='margin-top:4px;'>{delta_badge(delta)}</div>" if delta is not None else ""
     hint_html = (
         f"<div style='color:{COLOR_DIM};font-size:10.5px;margin-top:4px;'>{hint}</div>"
         if hint else ""
     )
+    val_color = _value_color(value) if tone == "auto" else COLOR_TEXT
     return (
         f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
         f"border-radius:10px;padding:10px 12px;margin-bottom:8px;'>"
         f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:0.1em;"
         f"color:{COLOR_MUTED};font-weight:500;'>{label}</div>"
         f"<div style='font-family:{_MONO};font-size:1.1rem;font-weight:600;"
-        f"color:{COLOR_TEXT};margin-top:4px;line-height:1.1;'>{value}</div>"
+        f"color:{val_color};margin-top:4px;line-height:1.1;"
+        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{value}</div>"
         f"{delta_html}{hint_html}"
         f"</div>"
     )
@@ -808,6 +903,48 @@ def inject_app_styles() -> None:
             [data-testid="stToolbar"] {{ display: none; }}
 
             /* ─── Pulido extra ──────────────────────────────────────────── */
+
+            /* Botón de mostrar/ocultar sidebar SIEMPRE visible.
+               Streamlit pinta dos variantes según el estado del sidebar:
+               - expandido: botón dentro del sidebar (stSidebarCollapseButton)
+               - colapsado: botón flotante en el main (stSidebarCollapsedControl /
+                 collapsedControl en versiones antiguas). Ambos los forzamos
+                 visibles, con z-index alto y posición fija para que no se
+                 pierdan al hacer scroll ni queden tapados por otros widgets. */
+            [data-testid="stSidebarCollapsedControl"],
+            [data-testid="collapsedControl"] {{
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                position: fixed !important;
+                top: 0.6rem !important;
+                left: 0.6rem !important;
+                z-index: 999999 !important;
+                background: {COLOR_SURFACE} !important;
+                border: 1px solid {COLOR_BORDER} !important;
+                border-radius: 8px !important;
+                padding: 4px !important;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
+            }}
+            [data-testid="stSidebarCollapsedControl"] button,
+            [data-testid="collapsedControl"] button {{
+                color: {COLOR_TEXT} !important;
+            }}
+            [data-testid="stSidebarCollapseButton"] {{
+                display: flex !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+            }}
+            [data-testid="stSidebarCollapseButton"] button {{
+                color: {COLOR_TEXT} !important;
+                background: {COLOR_SURFACE_2} !important;
+                border: 1px solid {COLOR_BORDER} !important;
+                border-radius: 6px !important;
+            }}
+            [data-testid="stSidebarCollapseButton"] button:hover {{
+                background: {COLOR_BORDER} !important;
+                color: {COLOR_ACCENT} !important;
+            }}
 
             /* Scrollbar dark consistente con la paleta. */
             ::-webkit-scrollbar {{ width: 10px; height: 10px; }}

@@ -32,6 +32,7 @@ def render_news_panel(ticker: str, limit: int = 5) -> None:
                 ts=n.get("date"),
                 ticker=ticker,
                 url=n.get("link"),
+                thumbnail=n.get("thumbnail"),
             ),
             unsafe_allow_html=True,
         )

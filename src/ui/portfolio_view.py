@@ -73,7 +73,7 @@ def render_portfolio_tab(portfolio_id: int | None = None) -> None:
             )
         # Espacio entre filas — sin esto, las cards quedan pegadas verticalmente
         # cuando hay más de 5 posiciones.
-        st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:24px;'></div>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
 
