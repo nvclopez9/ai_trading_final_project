@@ -4,6 +4,7 @@ Inspiración visual: Linear / Robinhood / Bloomberg dark.
 
 Cómo se usa:
 - Cada página llama ``inject_app_styles()`` UNA VEZ tras ``set_page_config``.
+- La navegación usa el sidebar nativo de Streamlit (multi-page app).
 - Para los bloques visuales se usan los helpers que devuelven HTML
   (``hero``, ``stat_strip``, ``holding_card``, ``news_card``,
   ``trade_row``, ``empty_state``) y se pintan con ``st.markdown(html,
@@ -168,52 +169,7 @@ def hero(title: str, subtitle: str, badge_html: str | None = None) -> None:
     )
 
 
-_NAV_PAGES: list[tuple[str, str]] = [
-    ("Inicio", "app.py"),
-    ("Chat", "pages/1_Chat.py"),
-    ("Cartera", "pages/2_Mi_Cartera.py"),
-    ("Carteras", "pages/3_Mis_Carteras.py"),
-    ("Mercado", "pages/4_Mercado.py"),
-    ("Top", "pages/5_Top_del_Dia.py"),
-    ("Noticias", "pages/6_Noticias.py"),
-    ("Ayuda", "pages/7_Ayuda.py"),
-]
 
-
-def render_topbar(active: str | None = None) -> None:
-    """Top nav horizontal estilo pelositracker.
-
-    El sidebar nativo se oculta por CSS (ver ``inject_app_styles``); este
-    helper se llama al inicio de cada página para mostrar la barra de
-    navegación. ``active`` es la etiqueta que debe resaltarse (p. ej.
-    ``"Inicio"``); si es ``None`` no se marca ninguna.
-
-    La topbar se envuelve en un ``<div class='topbar-wrapper'>`` para que el
-    CSS la haga ``position: sticky`` arriba con su propio fondo y borde.
-    """
-    # Apertura del wrapper sticky.
-    st.markdown("<div class='topbar-wrapper'>", unsafe_allow_html=True)
-    cols = st.columns([1.6] + [1] * len(_NAV_PAGES))
-    with cols[0]:
-        st.markdown(
-            f"<div class='topbar-brand'>"
-            f"<span style='font-size:18px;'>📈</span>"
-            f"<span style='font-weight:700;letter-spacing:-0.015em;font-size:15px;"
-            f"color:{COLOR_TEXT};'>Bot de Inversiones</span></div>",
-            unsafe_allow_html=True,
-        )
-    for col, (label, path) in zip(cols[1:], _NAV_PAGES):
-        with col:
-            if label == active:
-                # Píldora "activa" — botón deshabilitado con look de seleccionado.
-                st.markdown(
-                    f"<div class='nav-pill nav-pill-active'>{label}</div>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.page_link(path, label=label)
-    # Cierre del wrapper sticky.
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def llm_badge(provider_label: str, model: str) -> str:
@@ -239,11 +195,11 @@ def stat_tile(label: str, value: str, delta: float | None = None, hint: str | No
         )
     return (
         f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
-        f"border-radius:14px;padding:20px 22px;height:100%;min-height:108px;"
+        f"border-radius:14px;padding:16px 14px;height:100%;min-height:90px;"
         f"box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-start;'>"
         f"<div style='font-size:11px;text-transform:uppercase;letter-spacing:0.1em;"
         f"color:{COLOR_MUTED};font-weight:500;margin-bottom:12px;'>{label}</div>"
-        f"<div style='font-family:{_MONO};font-size:1.7rem;font-weight:600;"
+        f"<div style='font-family:{_MONO};font-size:1.4rem;font-weight:600;"
         f"color:{COLOR_TEXT};letter-spacing:-0.01em;line-height:1.15;'>{value}</div>"
         f"{delta_html}{hint_html}"
         f"</div>"
@@ -318,8 +274,8 @@ def holding_card(ticker: str, qty: float, value: float | None,
         )
     return (
         f"<div style='background:{COLOR_SURFACE};border:1px solid {COLOR_BORDER};"
-        f"border-radius:14px;padding:18px 18px 20px;display:flex;flex-direction:column;gap:4px;"
-        f"transition:border-color 140ms ease;height:100%;min-height:152px;box-sizing:border-box;'>"
+        f"border-radius:14px;padding:14px 14px 16px;display:flex;flex-direction:column;gap:4px;"
+        f"transition:border-color 140ms ease;height:100%;min-height:130px;box-sizing:border-box;'>"
         f"<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:8px;'>"
         f"<div style='min-width:0;'>"
         f"<div style='font-family:{_MONO};font-weight:700;letter-spacing:0.4px;"
@@ -450,7 +406,7 @@ def inject_app_styles() -> None:
             .block-container {{
                 padding-top: 2.2rem;
                 padding-bottom: 4rem;
-                max-width: 1320px;
+                max-width: 100%;
             }}
             /* Espaciado vertical por defecto entre bloques verticales del layout
                para que el flujo respire sin perder densidad. */
@@ -461,12 +417,15 @@ def inject_app_styles() -> None:
             [data-testid="column"] [data-testid="stVerticalBlock"] {{
                 gap: 0.45rem;
             }}
-            /* Gap horizontal entre columnas — Streamlit pone muy poco por defecto. */
+            /* Columnas horizontales */
             .block-container [data-testid="stHorizontalBlock"] {{
-                gap: 0.85rem;
+                gap: 0.6rem;
             }}
-            /* La topbar es horizontal pero la queremos compacta — el override
-               específico vive en la regla .topbar-wrapper [data-testid=...]. */
+            /* Las columnas deben poder encogerse sin desbordar */
+            [data-testid="column"] {{
+                min-width: 0 !important;
+                overflow: hidden;
+            }}
             h1, h2, h3, h4, h5 {{
                 font-weight: 600;
                 letter-spacing: -0.018em;
@@ -607,10 +566,48 @@ def inject_app_styles() -> None:
                 padding: 14px 18px;
                 margin: 6px 0;
             }}
-            .stChatInput textarea, [data-baseweb="textarea"] textarea {{
+            /* Chat input: compacto con botón alineado a la derecha */
+            [data-testid="stBottom"] > div {{
+                background: {COLOR_BG};
+            }}
+            [data-testid="stChatInput"] {{
                 background: {COLOR_SURFACE} !important;
-                color: {COLOR_TEXT} !important;
                 border: 1px solid {COLOR_BORDER} !important;
+                border-radius: 10px !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+            }}
+            [data-testid="stChatInput"] textarea {{
+                background: transparent !important;
+                color: {COLOR_TEXT} !important;
+                border: none !important;
+                min-height: 44px !important;
+                max-height: 44px !important;
+                height: 44px !important;
+                padding: 10px 56px 10px 16px !important;
+                resize: none !important;
+                line-height: 24px !important;
+            }}
+            [data-testid="stChatInput"] button {{
+                position: absolute !important;
+                right: 6px !important;
+                top: 50% !important;
+                bottom: auto !important;
+                transform: translateY(-50%) !important;
+                background: {COLOR_ACCENT} !important;
+                border: none !important;
+                color: white !important;
+                border-radius: 8px !important;
+                width: 34px !important;
+                height: 34px !important;
+                min-width: 34px !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                padding: 0 !important;
+            }}
+            [data-testid="stChatInput"] button:hover {{
+                background: #2563EB !important;
             }}
 
             /* Alerts */
@@ -654,97 +651,26 @@ def inject_app_styles() -> None:
                 color: {COLOR_DIM};
             }}
 
-            /* Sidebar oculta — la navegación es topbar */
-            [data-testid="stSidebar"],
-            [data-testid="stSidebarNav"],
-            [data-testid="stSidebarNavItems"],
-            [data-testid="stSidebarContent"],
-            [data-testid="collapsedControl"],
-            [data-testid="stSidebarCollapsedControl"],
-            [data-testid="stSidebarCollapseButton"],
-            [data-testid="stSidebarUserContent"],
-            section[data-testid="stSidebar"],
-            div[data-testid="stSidebar"] {{
-                display: none !important;
-                width: 0 !important;
-                min-width: 0 !important;
-                visibility: hidden !important;
+            /* Sidebar nativo — el botón de toggle siempre visible */
+            [data-testid="stSidebar"] {{
+                background: {COLOR_SURFACE};
+                border-right: 1px solid {COLOR_BORDER};
             }}
-            section[data-testid="stMain"] {{ margin-left: 0 !important; padding-left: 0 !important; }}
-            section[data-testid="stMain"] > div {{ padding-left: 1rem; padding-right: 1rem; }}
-            .stAppViewContainer > section:first-child {{ display: none !important; }}
-
-            /* Topbar sticky: se queda fija arriba al hacer scroll, con su propio
-               fondo y un divisor inferior. El padding-top se aplica con un
-               negativo que compensa el del block-container para que pegue al borde. */
-            .topbar-wrapper {{
-                position: sticky;
-                top: 0;
-                z-index: 1000;
-                background: {COLOR_BG};
-                margin: -2.2rem -1rem 1.5rem -1rem;
-                padding: 14px 1rem 12px 1rem;
-                border-bottom: 1px solid {COLOR_BORDER};
-                backdrop-filter: blur(8px);
-                -webkit-backdrop-filter: blur(8px);
+            [data-testid="stSidebarNav"] {{
+                padding-top: 1rem;
             }}
-            .topbar-wrapper [data-testid="stHorizontalBlock"] {{
-                gap: 6px !important;
-                align-items: center !important;
-            }}
-            .topbar-wrapper [data-testid="stVerticalBlock"] {{
-                gap: 0 !important;
-            }}
-            .topbar-wrapper [data-testid="column"] {{
-                display: flex;
-                align-items: center;
-                min-width: 0;
-            }}
-            .topbar-brand {{
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                white-space: nowrap;
-                padding-left: 4px;
-            }}
-
-            /* Topbar nav: estiliza st.page_link como pill */
-            [data-testid="stPageLink"] a, a[data-testid="stPageLink-NavLink"] {{
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                height: 38px;
-                padding: 0 14px;
-                border-radius: 8px;
-                border: 1px solid transparent;
-                color: {COLOR_MUTED} !important;
+            [data-testid="stSidebarNavLink"] {{
+                color: {COLOR_MUTED};
                 font-weight: 500;
-                font-size: 14px;
-                background: transparent;
-                transition: all 140ms ease;
-                text-decoration: none !important;
             }}
-            [data-testid="stPageLink"] a:hover, a[data-testid="stPageLink-NavLink"]:hover {{
-                color: {COLOR_TEXT} !important;
+            [data-testid="stSidebarNavLink"]:hover {{
+                color: {COLOR_TEXT};
                 background: {COLOR_SURFACE_2};
-                border-color: {COLOR_BORDER};
             }}
-            [data-testid="stPageLink"] a span, a[data-testid="stPageLink-NavLink"] span {{
-                color: inherit !important;
-                font-weight: 500 !important;
-            }}
-            .nav-pill {{
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                height: 38px;
-                padding: 0 14px;
-                border-radius: 8px;
-                font-weight: 600;
-                font-size: 14px;
-                border: 1px solid {COLOR_ACCENT}66;
+            [data-testid="stSidebarNavLink"][aria-selected="true"] {{
+                color: {COLOR_ACCENT} !important;
                 background: {COLOR_ACCENT}1A;
-                color: {COLOR_ACCENT};
+                border-left: 3px solid {COLOR_ACCENT};
             }}
 
             hr {{

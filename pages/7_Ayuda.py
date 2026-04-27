@@ -1,12 +1,11 @@
 """Página Ayuda: thin wrapper sobre ``render_help_tab``."""
 import streamlit as st
 
-from src.ui.components import COLOR_DIM, hero, inject_app_styles, render_topbar
+from src.ui.components import COLOR_DIM, hero, inject_app_styles
 from src.ui.help_view import render_help_tab
 
-st.set_page_config(page_title="Ayuda · Bot de Inversiones", page_icon="?", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Ayuda · Bot de Inversiones", page_icon="?", layout="wide", initial_sidebar_state="expanded")
 inject_app_styles()
-render_topbar(active="Ayuda")
 
 hero(
     "Ayuda",

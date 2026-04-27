@@ -41,7 +41,6 @@ from src.ui.components import (
     hero,
     inject_app_styles,
     news_card,
-    render_topbar,
     section_title,
     stat_strip,
     stat_tile,
@@ -50,9 +49,8 @@ from src.ui.news_view import render_news_panel
 
 
 # ─── Setup ──────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Mercado · Bot de Inversiones", page_icon="M", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Mercado · Bot de Inversiones", page_icon="M", layout="wide", initial_sidebar_state="expanded")
 inject_app_styles()
-render_topbar(active="Mercado")
 
 hero(
     "Mercado",

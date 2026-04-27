@@ -19,15 +19,13 @@ from src.ui.components import (
     fmt_money,
     hero,
     inject_app_styles,
-    render_topbar,
     section_title,
     stat_strip,
     stat_tile,
 )
 
-st.set_page_config(page_title="Carteras · Bot de Inversiones", page_icon="🧺", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Carteras · Bot de Inversiones", page_icon="🧺", layout="wide", initial_sidebar_state="expanded")
 inject_app_styles()
-render_topbar(active="Carteras")
 
 _ = get_agent()
 _ = ensure_session_id()

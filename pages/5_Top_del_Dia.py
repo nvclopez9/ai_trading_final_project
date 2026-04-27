@@ -16,12 +16,10 @@ from src.ui.components import (
     delta_badge,
     hero,
     inject_app_styles,
-    render_topbar,
 )
 
-st.set_page_config(page_title="Top del día · Bot de Inversiones", page_icon="🔥", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Top del día · Bot de Inversiones", page_icon="🔥", layout="wide", initial_sidebar_state="expanded")
 inject_app_styles()
-render_topbar(active="Top")
 
 hero(
     "Top del día",

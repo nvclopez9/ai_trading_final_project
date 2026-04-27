@@ -29,7 +29,6 @@ from src.ui.components import (
     inject_app_styles,
     llm_badge,
     market_row,
-    render_topbar,
     section_title,
     stat_strip,
     stat_tile,
@@ -41,10 +40,9 @@ st.set_page_config(
     page_title="Bot de Inversiones",
     page_icon=":chart_with_upwards_trend:",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 inject_app_styles()
-render_topbar(active="Inicio")
 
 _ = get_agent()
 _ = ensure_session_id()
