@@ -129,6 +129,11 @@ def get_active_llm_info() -> tuple[str, str]:
         if not api_key:
             return ("ollama", os.getenv("OLLAMA_MODEL", "gemma3:4b"))
         return ("openrouter", os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"))
+    elif provider == "nvidia":
+        api_key = os.getenv("NVIDIA_API_KEY", "").strip()
+        if not api_key:
+            return ("ollama", os.getenv("OLLAMA_MODEL", "gemma3:4b"))
+        return ("nvidia", os.getenv("NVIDIA_MODEL", "z-ai/glm4.7"))
     return ("ollama", os.getenv("OLLAMA_MODEL", "gemma3:4b"))
 
 
@@ -179,6 +184,19 @@ def _build_openrouter_llm() -> ChatOpenAI:
     )
 
 
+def _build_nvidia_llm() -> ChatOpenAI:
+    """Construye el cliente de NVIDIA NIM (vía API compatible OpenAI)."""
+    model = os.getenv("NVIDIA_MODEL", "z-ai/glm4.7")
+    api_key = os.getenv("NVIDIA_API_KEY", "").strip()
+    return ChatOpenAI(
+        model=model,
+        api_key=api_key,
+        base_url="https://integrate.api.nvidia.com/v1",
+        temperature=0.1,
+        max_tokens=2048,
+    )
+
+
 def _build_llm():
     """Selecciona el cliente LLM según ``LLM_PROVIDER`` del .env.
 
@@ -192,6 +210,10 @@ def _build_llm():
             # Fallback transparente: sin API key no podemos hablar con OpenRouter.
             return _build_ollama_llm()
         return _build_openrouter_llm()
+    elif provider == "nvidia":
+        if not os.getenv("NVIDIA_API_KEY", "").strip():
+            return _build_ollama_llm()
+        return _build_nvidia_llm()
     return _build_ollama_llm()
 
 
