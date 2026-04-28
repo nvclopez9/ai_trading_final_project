@@ -99,7 +99,18 @@
       "Bash(awk '{print $NF, $5}')",
       "Bash(grep -c \"\\\\.pdf$\")",
       "Bash(python *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "WebFetch(domain:mcpmarket.com)",
+      "Bash(npm create *)",
+      "Bash(npm install *)",
+      "Bash(.venv\\\\Scripts\\\\pip show *)",
+      "Bash(.venv\\\\Scripts\\\\pip install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(\".venv/Scripts/python.exe\" -m pip install fastapi \"uvicorn[standard]\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"from backend.main import app; print\\('OK — routes:', len\\(app.routes\\)\\)\")",
+      "WebFetch(domain:web.delta.app)",
+      "WebFetch(domain:delta.app)"
     ]
   }
 }

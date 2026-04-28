@@ -12,6 +12,9 @@ from langchain_core.tools import tool
 
 from src.services import portfolio
 from src.services import portfolios
+from src.utils.logger import get_logger, timed
+
+log = get_logger("tools.portfolio")
 
 OK_ICON = "✅"
 ERR_ICON = "❌"
@@ -53,6 +56,7 @@ def portfolio_buy(ticker: str, qty: float) -> str:
     Usa esta tool cuando el usuario pida comprar, adquirir o añadir acciones.
     Antes de llamarla, avisa brevemente al usuario de lo que vas a hacer."""
     global _LAST_DUPLICATE_WARNING
+    log.debug(f"portfolio_buy called: {ticker} qty={qty}")
     try:
         pid = get_active_portfolio_id()
         symbol = str(ticker).strip().upper()
@@ -71,16 +75,20 @@ def portfolio_buy(ticker: str, qty: float) -> str:
                     f"Confirma con \"sí, repite\" si era intencional."
                 )
 
-        r = portfolio.buy(ticker, qty_f, portfolio_id=pid)
+        with timed(log, f"portfolio.buy({symbol}, {qty_f})"):
+            r = portfolio.buy(ticker, qty_f, portfolio_id=pid)
         _LAST_DUPLICATE_WARNING = None
+        log.debug(f"result: bought {r['qty']:g} {r['ticker']} @ ${r['price']:.2f}")
         return (
             f"{OK_ICON} Compra ejecutada{_active_name_suffix()}: {r['qty']:g} acciones de {r['ticker']} "
             f"a ${r['price']:.2f}. "
             f"Posición total: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
         )
     except ValueError as e:
+        log.warning(f"portfolio_buy({ticker}): {e}")
         return f"{ERR_ICON} No se pudo ejecutar la compra: {e}"
     except Exception as e:
+        log.warning(f"portfolio_buy({ticker}) unexpected error: {e}")
         return f"{ERR_ICON} Error inesperado al comprar '{ticker}': {e}"
 
 
@@ -94,9 +102,12 @@ def portfolio_sell(ticker: str, qty: float) -> str:
     Esta tool valida internamente si la posición existe; llámala SIEMPRE que el
     usuario indique intención de vender, aun cuando creas que no hay posición. Si
     no la hay, devuelve un mensaje útil que puedes mostrar al usuario."""
+    log.debug(f"portfolio_sell called: {ticker} qty={qty}")
     try:
         pid = get_active_portfolio_id()
-        r = portfolio.sell(ticker, float(qty), portfolio_id=pid)
+        with timed(log, f"portfolio.sell({ticker}, {qty})"):
+            r = portfolio.sell(ticker, float(qty), portfolio_id=pid)
+        log.debug(f"result: sold {r['qty']:g} {r['ticker']} @ ${r['price']:.2f} remaining={r['new_qty']:g}")
         if r["new_qty"] == 0:
             return (
                 f"{OK_ICON} Venta ejecutada{_active_name_suffix()}: {r['qty']:g} acciones de {r['ticker']} "
@@ -108,8 +119,10 @@ def portfolio_sell(ticker: str, qty: float) -> str:
             f"Posición restante: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
         )
     except ValueError as e:
+        log.warning(f"portfolio_sell({ticker}): {e}")
         return f"{ERR_ICON} No se pudo ejecutar la venta: {e}"
     except Exception as e:
+        log.warning(f"portfolio_sell({ticker}) unexpected error: {e}")
         return f"{ERR_ICON} Error inesperado al vender '{ticker}': {e}"
 
 
@@ -120,9 +133,11 @@ def portfolio_view() -> str:
     posición, valor total invertido y patrimonio total (cash + posiciones).
     Usa esta tool cuando el usuario pregunte por su cartera, posiciones,
     rentabilidad, efectivo o patrimonio."""
+    log.debug("portfolio_view called")
     try:
         pid = get_active_portfolio_id()
-        positions = portfolio.get_positions(portfolio_id=pid)
+        with timed(log, f"portfolio.get_positions(pid={pid})"):
+            positions = portfolio.get_positions(portfolio_id=pid)
         cash = portfolios.cash_available(pid)
         name_suffix = _active_name_suffix()
 
@@ -166,8 +181,10 @@ def portfolio_view() -> str:
                 "Nota: sin precio actual para " + ", ".join(totals["stale_tickers"]) +
                 " (excluidos del valor invertido)."
             )
+        log.debug(f"result: portfolio pid={pid} positions={len(positions)} net_worth={net_worth:.2f}")
         return "\n".join(lines)
     except Exception as e:
+        log.warning(f"portfolio_view error: {e}")
         return f"{ERR_ICON} Error consultando la cartera: {e}"
 
 
@@ -175,11 +192,14 @@ def portfolio_view() -> str:
 def portfolio_transactions(limit: int = 10) -> str:
     """Devuelve las últimas transacciones de la cartera ACTIVA.
     Parámetro limit: número máximo de transacciones a mostrar (por defecto 10)."""
+    log.debug(f"portfolio_transactions called: limit={limit}")
     try:
         pid = get_active_portfolio_id()
-        txs = portfolio.get_transactions(limit=int(limit), portfolio_id=pid)
+        with timed(log, f"portfolio.get_transactions(pid={pid}, limit={limit})"):
+            txs = portfolio.get_transactions(limit=int(limit), portfolio_id=pid)
         if not txs:
             return f"No hay transacciones registradas{_active_name_suffix()}."
+        log.debug(f"result: {len(txs)} transactions returned")
         header = f"{'Fecha':<20}{'Ticker':<8}{'Lado':<6}{'Qty':>8}{'Precio':>10}"
         lines = [f"Últimas {len(txs)} transacciones{_active_name_suffix()}:", header, "-" * len(header)]
         for t in txs:
@@ -189,6 +209,7 @@ def portfolio_transactions(limit: int = 10) -> str:
             )
         return "\n".join(lines)
     except Exception as e:
+        log.warning(f"portfolio_transactions error: {e}")
         return f"{ERR_ICON} Error consultando transacciones: {e}"
 
 
@@ -197,11 +218,14 @@ def portfolio_list() -> str:
     """Lista todas las carteras disponibles con un resumen (id, nombre, cash,
     riesgo, mercados, número de posiciones). Usa esta tool cuando el usuario
     pida ver sus carteras o comparar entre ellas."""
+    log.debug("portfolio_list called")
     try:
-        items = portfolios.list_portfolios()
+        with timed(log, "portfolios.list_portfolios()"):
+            items = portfolios.list_portfolios()
         if not items:
             return "No hay carteras creadas todavía."
         active_id = get_active_portfolio_id()
+        log.debug(f"result: {len(items)} portfolios found")
         lines = [f"Carteras disponibles ({len(items)}):"]
         for p in items:
             cash = portfolios.cash_available(p["id"])
@@ -214,6 +238,7 @@ def portfolio_list() -> str:
             )
         return "\n".join(lines)
     except Exception as e:
+        log.warning(f"portfolio_list error: {e}")
         return f"{ERR_ICON} Error listando carteras: {e}"
 
 
@@ -221,13 +246,17 @@ def portfolio_list() -> str:
 def portfolio_set_risk(risk: str) -> str:
     """Cambia el nivel de riesgo de la cartera ACTIVA.
     Valores válidos: 'conservador', 'moderado', 'agresivo'."""
+    log.debug(f"portfolio_set_risk called: risk={risk}")
     try:
         pid = get_active_portfolio_id()
         p = portfolios.update_risk(pid, risk)
+        log.debug(f"result: risk set to '{p['risk']}' for portfolio '{p['name']}'")
         return f"{OK_ICON} Riesgo actualizado a '{p['risk']}' en la cartera '{p['name']}'."
     except ValueError as e:
+        log.warning(f"portfolio_set_risk({risk}): {e}")
         return f"{ERR_ICON} No se pudo actualizar el riesgo: {e}"
     except Exception as e:
+        log.warning(f"portfolio_set_risk({risk}) unexpected error: {e}")
         return f"{ERR_ICON} Error actualizando riesgo: {e}"
 
 
@@ -236,14 +265,18 @@ def portfolio_set_markets(markets: str) -> str:
     """Cambia los mercados objetivo de la cartera ACTIVA.
     Acepta CSV tipo 'USA,Europa' o 'all'. Valores válidos:
     USA, EUROPA, ASIA, GLOBAL, ALL."""
+    log.debug(f"portfolio_set_markets called: markets={markets}")
     try:
         pid = get_active_portfolio_id()
         p = portfolios.update_markets(pid, markets)
+        log.debug(f"result: markets set to '{p['markets']}' for portfolio '{p['name']}'")
         return (
             f"{OK_ICON} Mercados actualizados a '{p['markets']}' en la cartera "
             f"'{p['name']}'."
         )
     except ValueError as e:
+        log.warning(f"portfolio_set_markets({markets}): {e}")
         return f"{ERR_ICON} No se pudo actualizar los mercados: {e}"
     except Exception as e:
+        log.warning(f"portfolio_set_markets({markets}) unexpected error: {e}")
         return f"{ERR_ICON} Error actualizando mercados: {e}"

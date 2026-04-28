@@ -19,6 +19,10 @@ import yfinance as yf
 # agente. Usa el docstring como descripción que lee el LLM para decidir.
 from langchain_core.tools import tool
 
+from src.utils.logger import get_logger, timed
+
+log = get_logger("tools.market")
+
 # Universos curados (acciones por tier + ETFs + commodities + crypto). Vivimos
 # en un único módulo `universes.py` para que advisor_tool y otras partes de
 # la app compartan las mismas listas y la mantenibilidad sea sencilla.
@@ -46,6 +50,7 @@ def get_ticker_status(ticker: str) -> str:
     """Obtiene el estado actual de un ticker bursátil: precio, cambio porcentual,
     P/E ratio, capitalización de mercado y nombre de la empresa.
     Parámetro: ticker (símbolo, por ejemplo 'AAPL', 'MSFT', 'TSLA')."""
+    log.debug(f"get_ticker_status called: {ticker}")
     try:
         # Normalizamos el símbolo: yfinance espera mayúsculas y sin espacios.
         # El agente a veces llega con "aapl" o " MSFT " según cómo parsee el LLM.
@@ -54,7 +59,8 @@ def get_ticker_status(ticker: str) -> str:
         # .info hace scraping y puede devolver None o dict parcial sin lanzar
         # excepción. El ``or {}`` nos da un dict vacío para poder hacer .get
         # sin preocuparnos.
-        info = t.info or {}
+        with timed(log, f"yfinance.Ticker({symbol}).info"):
+            info = t.info or {}
         # Doble alias: Yahoo a veces expone un campo y a veces el otro.
         price = info.get("regularMarketPrice") or info.get("currentPrice")
         prev_close = info.get("regularMarketPreviousClose") or info.get("previousClose")
@@ -63,7 +69,8 @@ def get_ticker_status(ticker: str) -> str:
         # historial y usamos el último cierre. Si el histórico también está
         # vacío, el ticker casi seguro no existe.
         if price is None:
-            hist = t.history(period="5d")
+            with timed(log, f"yfinance.Ticker({symbol}).history(5d) [fallback]"):
+                hist = t.history(period="5d")
             if hist.empty:
                 return f"No se encontraron datos para el ticker '{symbol}'. Verifica que sea válido."
             price = float(hist["Close"].iloc[-1])
@@ -89,6 +96,7 @@ def get_ticker_status(ticker: str) -> str:
         pe_str = f"{pe:.2f}" if isinstance(pe, (int, float)) else "n/d"
         mcap_str = f"{mcap:,}" if isinstance(mcap, (int, float)) else "n/d"
 
+        log.debug(f"result: {symbol} price={price_str} change={change_str}")
         # Respuesta multilínea en español: el LLM la resume al usuario siguiendo
         # la regla 5 del system prompt (no devolver JSON crudo).
         return (
@@ -99,6 +107,7 @@ def get_ticker_status(ticker: str) -> str:
             f"Capitalización de mercado: {mcap_str}"
         )
     except Exception as e:
+        log.warning(f"tool error get_ticker_status({ticker}): {e}")
         # Nunca propagamos excepciones al agente: devolvemos string controlado
         # para que el LLM pueda reaccionar (p.ej. sugerir verificar el símbolo).
         return f"Error consultando el ticker '{ticker}': {e}"
@@ -109,12 +118,14 @@ def get_ticker_history(ticker: str, period: str = "1mo") -> str:
     """Devuelve un resumen textual del histórico de precios de un ticker.
     Parámetros: ticker (símbolo), period (ej: '5d', '1mo', '3mo', '6mo', '1y', '5y').
     Incluye precio máximo, mínimo, último cierre y variación del periodo."""
+    log.debug(f"get_ticker_history called: {ticker} period={period}")
     try:
         # Misma normalización que en get_ticker_status.
         symbol = ticker.strip().upper()
         t = yf.Ticker(symbol)
         # history() devuelve un DataFrame pandas con columnas Open/High/Low/Close/Volume.
-        hist = t.history(period=period)
+        with timed(log, f"yfinance.Ticker({symbol}).history({period})"):
+            hist = t.history(period=period)
         if hist.empty:
             return f"No hay histórico disponible para '{symbol}' en el periodo '{period}'."
         # Estadísticos básicos: máximo/mínimo del periodo y primer/último cierre
@@ -126,12 +137,14 @@ def get_ticker_history(ticker: str, period: str = "1mo") -> str:
         # Guardamos contra división por cero (ticker con precio inicial 0 es
         # improbable pero posible con datos corruptos).
         change = round((last - first) / first * 100, 2) if first else 0.0
+        log.debug(f"result: {symbol} last={last:.2f} change={change}%")
         return (
             f"Histórico de {symbol} ({period}): "
             f"máximo {high:.2f}, mínimo {low:.2f}, último cierre {last:.2f}, "
             f"variación del periodo {change}%."
         )
     except Exception as e:
+        log.warning(f"tool error get_ticker_history({ticker}): {e}")
         return f"Error obteniendo histórico de '{ticker}': {e}"
 
 
@@ -196,6 +209,7 @@ def get_hot_tickers(category: str = "gainers") -> str:
     o 'actives' (mayor volumen). Útil para preguntas sobre el estado general del mercado."""
     # Normalización del argumento + validación del conjunto permitido.
     cat = (category or "gainers").strip().lower()
+    log.debug(f"get_hot_tickers called: category={cat}")
     if cat not in {"gainers", "losers", "actives"}:
         return "Categoría no válida. Usa 'gainers', 'losers' o 'actives'."
 
@@ -213,7 +227,8 @@ def get_hot_tickers(category: str = "gainers") -> str:
                 "actives": "most_actives",
             }[cat]
             s = Screener()
-            resp = s.get_screener(screener_key, count=10)
+            with timed(log, f"yfinance.Screener.get_screener({screener_key})"):
+                resp = s.get_screener(screener_key, count=10)
             # La estructura de resp ha cambiado entre versiones: a veces
             # {screener_key: {"quotes": [...]}} y a veces directamente {"quotes": [...]}.
             quotes = []
@@ -235,22 +250,28 @@ def get_hot_tickers(category: str = "gainers") -> str:
                 })
             # Si el Screener ha dado algo utilizable, devolvemos ya y evitamos el fallback lento.
             if rows:
+                log.debug(f"result: screener returned {len(rows)} rows for {cat}")
                 return _format_table(rows, cat)
-        except Exception:
+        except Exception as exc:
+            log.warning(f"yfinance Screener failed, using fallback universe: {exc}")
             # Cualquier fallo del Screener nos manda al fallback sin ruido.
             pass
 
         # Fallback: pedimos cotizaciones al universo hardcodeado y ordenamos
         # localmente según la categoría solicitada (mayor %, menor %, mayor vol).
-        rows = _fetch_fallback_quotes()
+        log.debug("get_hot_tickers: fetching fallback universe quotes")
+        with timed(log, "yfinance fallback universe scan"):
+            rows = _fetch_fallback_quotes()
         if cat == "gainers":
             rows.sort(key=lambda r: r["change_pct"], reverse=True)
         elif cat == "losers":
             rows.sort(key=lambda r: r["change_pct"])
         else:
             rows.sort(key=lambda r: r["volume"], reverse=True)
+        log.debug(f"result: fallback returned {len(rows)} rows for {cat}")
         return _format_table(rows, cat)
     except Exception as e:
+        log.warning(f"tool error get_hot_tickers({category}): {e}")
         return f"Error obteniendo tickers calientes: {e}"
 
 
@@ -341,7 +362,8 @@ def fetch_ticker_news(ticker: str, limit: int = 5) -> list[dict]:
     """
     try:
         symbol = ticker.strip().upper()
-        raw = yf.Ticker(symbol).news or []
+        with timed(log, f"yfinance.Ticker({symbol}).news"):
+            raw = yf.Ticker(symbol).news or []
     except Exception:
         return []
     items = []
@@ -360,10 +382,13 @@ def get_ticker_news(ticker: str, limit: int = 5) -> str:
     Parámetros: ticker (símbolo, p. ej. 'AAPL'), limit (máximo de noticias, 1-10, default 5).
     Fuente: Yahoo Finance (sin API key). Usa esta tool cuando el usuario pregunte por noticias,
     titulares o novedades de una empresa."""
+    log.debug(f"get_ticker_news called: {ticker} limit={limit}")
     try:
         items = fetch_ticker_news(ticker, limit)
     except Exception as e:
+        log.warning(f"tool error get_ticker_news({ticker}): {e}")
         return f"No pude obtener noticias para {ticker.upper()} ahora mismo: {e}"
+    log.debug(f"result: {ticker.strip().upper()} returned {len(items)} news items")
     if not items:
         return f"No se encontraron noticias recientes para {ticker.strip().upper()}."
     lines = [f"📰 Noticias recientes para {ticker.strip().upper()} ({len(items)}):", ""]

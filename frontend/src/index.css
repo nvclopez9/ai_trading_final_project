@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+/* ── Design Tokens (true black + emerald — pelositracker inspired) ───────── */
+:root {
+  /* Backgrounds — pure black base with neutral warm-grays */
+  --bg:        #0A0A0A;
+  --surface:   #131313;
+  --surface-2: #1A1A1C;
+  --surface-3: #232326;
+
+  /* Borders — subtle, neutral */
+  --border:    #1F1F22;
+  --border-2:  #2C2C30;
+
+  /* Primary accent — pelositracker emerald green */
+  --accent:      #10B981;
+  --accent-dim:  rgba(16,185,129,0.13);
+  --accent-glow: rgba(16,185,129,0.22);
+  --accent-2:    #34D399;
+
+  /* Blue (secondary — links, info, AI features) */
+  --blue:      #3B82F6;
+  --blue-dim:  rgba(59,130,246,0.13);
+
+  /* P&L colors */
+  --up:        #10B981;
+  --up-dim:    rgba(16,185,129,0.12);
+  --down:      #EF4444;
+  --down-dim:  rgba(239,68,68,0.12);
+
+  /* Text — slightly warm whites */
+  --text:   #EDEDEF;
+  --muted:  #8A8A93;
+  --dim:    #5C5C66;
+
+  /* Monospace font */
+  --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* Shadows (pelositracker card style) */
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.4);
+  --shadow-card: 0 4px 20px rgba(0,0,0,0.35), 0 1px 4px rgba(0,0,0,0.2);
+  --shadow-lg:   0 10px 40px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.25);
+  --shadow-glow-blue:   0 0 20px rgba(59,130,246,0.15), 0 4px 20px rgba(0,0,0,0.35);
+  --shadow-glow-green:  0 0 20px rgba(16,185,129,0.12), 0 4px 20px rgba(0,0,0,0.35);
+
+  /* Radius */
+  --radius-sm:  6px;
+  --radius:     12px;
+  --radius-lg:  16px;
+  --radius-xl:  20px;
+}
+
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';   /* nicer numbers in Inter */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+#root { height: 100vh; display: flex; }
+
+/* ── Focus rings (accessibility) ─────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ── Smooth defaults ─────────────────────────────────────────────────────── */
+button, a {
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease,
+              opacity 150ms ease, transform 150ms ease, box-shadow 200ms ease;
+}
+
+/* Card hover lift (apply via .card-hover) */
+.card-hover {
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-2) !important;
+}
+
+/* Subtle press feedback */
+button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+/* ── Utilities ───────────────────────────────────────────────────────────── */
+.mono { font-family: var(--mono); }
+
+/* Glass card — pelositracker style */
+.glass {
+  background: rgba(15, 21, 32, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* Glow on hover for nav items */
+.nav-active-glow {
+  box-shadow: 0 0 12px rgba(59,130,246,0.2);
+}
+
+/* Animated gradient border (for premium cards) */
+@keyframes border-glow {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 1; }
+}
+
+/* ── Recharts overrides ──────────────────────────────────────────────────── */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--shadow-card) !important;
+}
+.recharts-cartesian-axis-tick-value { fill: var(--muted) !important; font-size: 11px; }
+.recharts-label { fill: var(--muted); }
+
+/* ── Selection color ─────────────────────────────────────────────────────── */
+::selection { background: rgba(59,130,246,0.25); color: var(--text); }

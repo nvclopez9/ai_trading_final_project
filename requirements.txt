@@ -1,16 +1,25 @@
 # Requiere Python 3.10 – 3.13 (probado en 3.13)
-streamlit>=1.37,<2.0
+# --- LLM + agente ---
 langchain>=0.3,<0.4
 langchain-core>=0.3,<0.4
 langchain-community>=0.3,<0.4
 langchain-ollama>=0.2,<0.4
 langchain-text-splitters>=0.3,<0.4
 langchain-chroma>=0.2,<0.3
+langchain-openai>=0.2,<0.4
+# --- Datos de mercado ---
 yfinance>=0.2.40,<0.3
+# --- RAG ---
 chromadb>=1.0,<2.0
 pypdf>=4.2,<6.0
+# --- Backend API (React frontend) ---
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+# --- UI Streamlit (legacy, se mantiene para compatibilidad) ---
+streamlit>=1.37,<2.0
 plotly>=5.22,<7.0
+# --- Utilidades ---
 pandas>=2.2,<3.0
 python-dotenv>=1.0,<2.0
-langchain-openai>=0.2,<0.4
+# --- Tests ---
 pytest>=8.0,<9.0

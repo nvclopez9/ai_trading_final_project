@@ -48,6 +48,10 @@ Puntos didácticos clave para la exposición oral:
 import os
 from dotenv import load_dotenv
 
+from src.utils.logger import get_logger
+
+log = get_logger("agent.builder")
+
 # LangChain — construcción del agente y tools.
 # ChatOllama: cliente de LangChain para el servidor Ollama local.
 from langchain_ollama import ChatOllama
@@ -133,7 +137,7 @@ def get_active_llm_info() -> tuple[str, str]:
         api_key = os.getenv("NVIDIA_API_KEY", "").strip()
         if not api_key:
             return ("ollama", os.getenv("OLLAMA_MODEL", "gemma3:4b"))
-        return ("nvidia", os.getenv("NVIDIA_MODEL", "z-ai/glm4.7"))
+        return ("nvidia", os.getenv("NVIDIA_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct"))
     return ("ollama", os.getenv("OLLAMA_MODEL", "gemma3:4b"))
 
 
@@ -185,15 +189,26 @@ def _build_openrouter_llm() -> ChatOpenAI:
 
 
 def _build_nvidia_llm() -> ChatOpenAI:
-    """Construye el cliente de NVIDIA NIM (vía API compatible OpenAI)."""
-    model = os.getenv("NVIDIA_MODEL", "z-ai/glm4.7")
+    """Construye el cliente de NVIDIA NIM (vía API compatible OpenAI).
+
+    streaming=True: habilita SSE token-a-token para que la UI muestre texto
+    fluyendo en lugar de bloquearse hasta que llegue la respuesta completa.
+    request_timeout + max_retries: evitan bloqueos indefinidos y reintentan
+    en fallos transitorios de red.
+    max_tokens=1024: apropiado para un agente tool-calling (no prosa larga);
+    reduce el tiempo de inferencia por iteración vs los 2048 anteriores.
+    """
+    model = os.getenv("NVIDIA_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
     api_key = os.getenv("NVIDIA_API_KEY", "").strip()
     return ChatOpenAI(
         model=model,
         api_key=api_key,
         base_url="https://integrate.api.nvidia.com/v1",
         temperature=0.1,
-        max_tokens=2048,
+        max_tokens=1024,
+        streaming=True,
+        request_timeout=60.0,
+        max_retries=2,
     )
 
 
@@ -227,6 +242,8 @@ def build_agent() -> RunnableWithMessageHistory:
     .env (LLM_PROVIDER, modelos, API keys), debes reiniciar Streamlit para
     que la caché se invalide y se reconstruya el agente.
     """
+    provider = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+    log.debug(f"Building agent... provider={provider}")
     # Cliente del LLM (Ollama local u OpenRouter remoto, según .env).
     llm = _build_llm()
 
@@ -311,6 +328,7 @@ def build_agent() -> RunnableWithMessageHistory:
     # campo del dict de entrada es el "mensaje nuevo" del usuario.
     # history_messages_key="chat_history": dónde inyectar el historial en el
     # prompt (coincide con el MessagesPlaceholder del ChatPromptTemplate).
+    log.debug(f"Agent built successfully ({len(tools)} tools registered)")
     return RunnableWithMessageHistory(
         executor,
         get_session_history,

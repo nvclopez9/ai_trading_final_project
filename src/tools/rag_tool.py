@@ -30,6 +30,10 @@ from langchain_chroma import Chroma
 
 load_dotenv()
 
+from src.utils.logger import get_logger, timed
+
+log = get_logger("tools.rag")
+
 # Singleton module-level: la primera llamada crea el vectorstore, las
 # siguientes lo reutilizan. Si la inicialización falla guardamos el motivo
 # en _init_error para no reintentar (y para devolver un mensaje útil al LLM).
@@ -59,11 +63,13 @@ def _get_vectorstore():
     try:
         host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         embeddings_model = os.getenv("EMBEDDINGS_MODEL", "nomic-embed-text")
+        log.debug(f"Opening Chroma vectorstore at '{chroma_dir}' with embeddings model '{embeddings_model}'")
         embeddings = OllamaEmbeddings(model=embeddings_model, base_url=host)
-        _vectorstore = Chroma(
-            persist_directory=str(persist_path),
-            embedding_function=embeddings,
-        )
+        with timed(log, f"Chroma.open({chroma_dir})"):
+            _vectorstore = Chroma(
+                persist_directory=str(persist_path),
+                embedding_function=embeddings,
+            )
         try:
             if _vectorstore._collection.count() == 0:
                 _init_error = "Base de conocimiento vacía. Ejecuta `python -m src.rag.ingest` primero."
@@ -71,9 +77,11 @@ def _get_vectorstore():
                 return None
         except Exception:
             pass
+        log.debug("Chroma vectorstore initialized successfully")
         return _vectorstore
     except Exception as e:
         # Memorizamos el error para no volver a intentarlo en esta sesión.
+        log.warning(f"Failed to open Chroma vectorstore: {e}")
         _init_error = f"Error abriendo la base de conocimiento: {e}"
         return None
 
@@ -85,6 +93,7 @@ def search_finance_knowledge(query: str) -> str:
     plazo (value, growth, dividendos) y educación bursátil general.
     Parámetro: query (pregunta o concepto en lenguaje natural).
     Usa esta herramienta para preguntas educativas o conceptuales, NO para precios en vivo."""
+    log.debug(f"search_finance_knowledge called: query='{query[:80]}'")
     # Obtenemos (o inicializamos) el vectorstore; si no hay, devolvemos el motivo.
     vs = _get_vectorstore()
     if vs is None:
@@ -93,12 +102,16 @@ def search_finance_knowledge(query: str) -> str:
     try:
         # k=4 es un compromiso típico: suficiente contexto para responder sin
         # saturar el context window del LLM ni ensuciar con fragmentos poco relevantes.
-        docs = vs.similarity_search(query, k=4)
+        with timed(log, "Chroma.similarity_search(k=4)"):
+            docs = vs.similarity_search(query, k=4)
     except Exception as e:
+        log.warning(f"tool error search_finance_knowledge: {e}")
         return f"Error consultando la base de conocimiento: {e}"
 
     if not docs:
         return "No se encontró información relevante en la base de conocimiento."
+
+    log.debug(f"result: {len(docs)} chunks retrieved from vectorstore")
 
     # Formateamos cada chunk con su fuente: el LLM debe citar el PDF en su
     # respuesta final (regla #6 del system prompt). La página se guarda en
