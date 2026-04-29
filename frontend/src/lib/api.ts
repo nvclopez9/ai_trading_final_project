@@ -37,6 +37,7 @@ export const marketApi = {
   hot: () => _fetch<HotTickers>(`/market/hot`),
   compare: (tickers: string[]) => _fetch<TickerStatus[]>(`/market/compare?tickers=${tickers.join(',')}`),
   fundamentals: (symbol: string) => _fetch<Fundamentals>(`/market/fundamentals/${symbol}`),
+  search: (q: string, limit = 10) => _fetch<SearchResult[]>(`/market/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 }
 
 // --- News ---
@@ -151,6 +152,13 @@ export interface Fundamentals {
   dividend_yield: number | null; payout_ratio: number | null; market_cap: number | null;
   enterprise_value: number | null; float_shares: number | null; short_ratio: number | null;
   analyst_target: number | null; recommendation: string | null;
+}
+export interface SearchResult {
+  symbol: string
+  name: string
+  exchange: string
+  type: string
+  region: string
 }
 export interface Preferences {
   risk_profile: string; time_horizon: string; favorite_sectors: string[];

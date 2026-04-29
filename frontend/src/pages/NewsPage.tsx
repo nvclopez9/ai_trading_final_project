@@ -88,9 +88,17 @@ export function NewsPage() {
   })
 
   const handleAnalyze = (item: NewsItem) => {
-    const ticker = item._origin ?? searchTicker
-    const prompt = `Analiza esta noticia sobre ${ticker} en profundidad y dame conclusiones útiles.\n\nNoticia:\n- Titular: ${item.title}\n- Fuente: ${item.source}\n- Fecha: ${item.date}\n\nPasos: 1) Resumen en 2-3 frases. 2) Sentimiento detectado. 3) Llama a get_ticker_status('${ticker}') para contexto de precio. 4) Impacto previsible en el precio. 5) Acciones recomendadas (educativo, no asesoramiento). Añade disclaimer.`
-    sessionStorage.setItem('chat_prefill', prompt)
+    const ticker = item._origin ?? (tab === 'search' ? searchTicker : '')
+    const parts: string[] = []
+    if (ticker) {
+      parts.push(`Analiza esta noticia sobre ${ticker}:`)
+    } else {
+      parts.push('Analiza esta noticia:')
+    }
+    parts.push(item.title)
+    if (item.source) parts.push(`Fuente: ${item.source}`)
+    if (item.link) parts.push(`URL: ${item.link}`)
+    sessionStorage.setItem('chat_prefill', parts.join('\n'))
     navigate('/chat')
   }
 

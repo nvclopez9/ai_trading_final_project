@@ -77,6 +77,8 @@ from src.tools.market_tools import (
     get_ticker_history,
     get_hot_tickers,
     get_ticker_news,
+    search_ticker,
+    analyze_news_article,
 )
 from src.tools.rag_tool import search_finance_knowledge
 from src.tools.portfolio_tools import (
@@ -254,6 +256,8 @@ def build_agent() -> RunnableWithMessageHistory:
         get_ticker_history,
         get_hot_tickers,
         get_ticker_news,
+        search_ticker,
+        analyze_news_article,
         search_finance_knowledge,
         portfolio_buy,
         portfolio_sell,

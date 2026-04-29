@@ -397,3 +397,128 @@ def get_ticker_news(ticker: str, limit: int = 5) -> str:
         if n["link"]:
             lines.append(f"   {n['link']}")
     return "\n".join(lines)
+
+
+# ── Real-time ticker search ─────────────────────────────────────────────────
+
+def _yahoo_search_raw(query: str, limit: int = 8) -> list[dict]:
+    """Llama a Yahoo Finance search API y devuelve la lista cruda de quotes."""
+    import urllib.request
+    import urllib.parse
+    import json as _json
+
+    url = (
+        "https://query1.finance.yahoo.com/v1/finance/search"
+        f"?q={urllib.parse.quote(query.strip())}"
+        f"&quotesCount={limit}&newsCount=0&lang=en&enableNavLinks=false"
+    )
+    req = urllib.request.Request(url, headers={
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
+    })
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        return _json.loads(resp.read().decode()).get("quotes", []) or []
+
+
+@tool
+def search_ticker(query: str) -> str:
+    """Busca tickers bursátiles por nombre de empresa o símbolo parcial en tiempo real.
+    Úsala cuando no sepas el símbolo exacto de una empresa o quieras buscar por nombre.
+    Parámetro: query — nombre de empresa o símbolo aproximado (ej: 'Apple', 'banco santander', 'tesla', 'SAP')."""
+    log.debug(f"search_ticker called: {query!r}")
+    try:
+        with timed(log, f"yahoo_search({query!r})"):
+            quotes = _yahoo_search_raw(query, limit=8)
+        if not quotes:
+            return f"No se encontraron tickers para '{query}'."
+        lines = [f"Resultados de búsqueda para '{query}':"]
+        for item in quotes:
+            sym = item.get("symbol", "")
+            if not sym:
+                continue
+            name = item.get("longname") or item.get("shortname") or sym
+            exchange = item.get("exchDisp") or item.get("exchange") or ""
+            qt = item.get("typeDisp") or item.get("quoteType") or ""
+            lines.append(f"  • {sym} — {name} [{exchange}] ({qt})")
+        return "\n".join(lines)
+    except Exception as e:
+        log.warning(f"search_ticker error for {query!r}: {e}")
+        return f"Error al buscar tickers para '{query}': {e}"
+
+
+@tool
+def analyze_news_article(ticker: str, title: str, source: str = "", url: str = "") -> str:
+    """Obtiene el contexto de mercado completo para analizar una noticia financiera.
+    Devuelve: precio actual, variación diaria, tendencia de 3 meses, market cap y P/E
+    del ticker relacionado, listos para que el agente redacte el análisis de impacto.
+    Parámetros:
+    - ticker: símbolo bursátil relacionado con la noticia (ej: 'AAPL', 'TSLA')
+    - title: titular exacto de la noticia
+    - source: fuente periodística (ej: 'Reuters', 'Bloomberg')
+    - url: enlace a la noticia (opcional, se incluye en el resumen)."""
+    sym = ticker.strip().upper()
+    log.debug(f"analyze_news_article called: ticker={sym!r} title={title[:60]!r}")
+    try:
+        t = yf.Ticker(sym)
+        with timed(log, f"analyze_news.info({sym})"):
+            info = t.info or {}
+
+        price = info.get("regularMarketPrice") or info.get("currentPrice")
+        prev = info.get("regularMarketPreviousClose") or info.get("previousClose")
+        name = info.get("longName") or info.get("shortName") or sym
+        sector = info.get("sector") or "N/D"
+        pe = info.get("trailingPE")
+        mc = info.get("marketCap")
+
+        mc_str = "N/D"
+        if mc:
+            mc_str = f"${mc/1e12:.1f}T" if mc >= 1e12 else f"${mc/1e9:.1f}B"
+
+        change_str = "N/D"
+        if price and prev and float(prev) != 0:
+            chg = (float(price) - float(prev)) / float(prev) * 100
+            change_str = f"{chg:+.2f}%"
+
+        with timed(log, f"analyze_news.history({sym}, 3mo)"):
+            hist = t.history(period="3mo")
+
+        trend_str = "N/D"
+        if not hist.empty and len(hist) >= 2:
+            h_start = float(hist["Close"].iloc[0])
+            h_end = float(hist["Close"].iloc[-1])
+            if h_start != 0:
+                h_pct = (h_end - h_start) / h_start * 100
+                h_high = float(hist["High"].max())
+                h_low = float(hist["Low"].min())
+                trend_str = f"{h_pct:+.1f}% (máx ${h_high:.2f} / mín ${h_low:.2f})"
+
+        lines = [
+            f"NOTICIA: {title}",
+            f"Fuente: {source or 'N/D'}",
+        ]
+        if url:
+            lines.append(f"URL: {url}")
+        lines += [
+            "",
+            f"CONTEXTO DE MERCADO — {sym} ({name})",
+            f"Sector: {sector}",
+            f"Precio actual: ${float(price):.2f}" if price else "Precio: N/D",
+            f"Variación hoy: {change_str}",
+            f"Market Cap: {mc_str}",
+            f"P/E ratio: {f'{pe:.2f}' if isinstance(pe, (int, float)) else 'N/D'}",
+            f"Tendencia 3 meses: {trend_str}",
+        ]
+        return "\n".join(lines)
+
+    except Exception as e:
+        log.warning(f"analyze_news_article error for {sym!r}: {e}")
+        return (
+            f"NOTICIA: {title}\n"
+            f"Fuente: {source or 'N/D'}\n"
+            f"URL: {url}\n\n"
+            f"No se pudieron obtener datos de mercado para {sym}: {e}\n"
+            "Analiza la noticia basándote en el titular y lo que sepas del ticker."
+        )

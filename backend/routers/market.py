@@ -1,10 +1,73 @@
 """Market data API routes."""
 import json
+import urllib.request
+import urllib.parse
 from fastapi import APIRouter, HTTPException, Query
 
 import yfinance as yf
 
 router = APIRouter(prefix="/api/market", tags=["market"])
+
+# ── Ticker search helpers ───────────────────────────────────────────────────
+
+_US = {"NASDAQ", "NYSE", "AMEX", "BATS", "NMS", "NYQ", "PCX", "ASE", "NCM", "NGM"}
+_EU = {
+    "LONDON", "LSE", "AIM", "XETRA", "EURONEXT", "MILAN", "MADRID",
+    "PARIS", "AMSTERDAM", "STOCKHOLM", "OSLO", "COPENHAGEN", "HELSINKI",
+    "ZURICH", "WARSAW", "VIENNA", "ATHENS", "LISBON", "BRUSSELS",
+    "FRANKFURT", "SIX", "BME", "BORSA",
+}
+_ASIA = {
+    "TOKYO", "HONG KONG", "SHANGHAI", "SHENZHEN", "BOMBAY",
+    "NATIONAL STOCK", "KOREA", "TAIWAN", "SINGAPORE", "AUSTRALIA",
+    "BANGKOK", "JAKARTA", "KUALA LUMPUR", "KARACHI",
+}
+_LATAM = {"SAO PAULO", "MEXICO", "BUENOS AIRES", "SANTIAGO", "BOGOTA", "LIMA"}
+
+
+def _exchange_region(exchange: str, quote_type: str) -> str:
+    qt = (quote_type or "").upper()
+    if qt == "CRYPTOCURRENCY":
+        return "Crypto"
+    if qt == "CURRENCY":
+        return "Divisas"
+    if qt == "INDEX":
+        return "Índices"
+    if qt == "FUTURE":
+        return "Futuros"
+    if qt == "ETF":
+        return "ETF"
+    if qt == "MUTUALFUND":
+        return "Fondos"
+    exc = (exchange or "").upper()
+    if any(k in exc for k in _US):
+        return "USA"
+    if any(k in exc for k in _EU):
+        return "Europa"
+    if any(k in exc for k in _ASIA):
+        return "Asia"
+    if any(k in exc for k in _LATAM):
+        return "LatAm"
+    return "Global"
+
+
+def _yahoo_search(q: str, limit: int) -> list[dict]:
+    url = (
+        "https://query1.finance.yahoo.com/v1/finance/search"
+        f"?q={urllib.parse.quote(q)}"
+        f"&quotesCount={limit}"
+        "&newsCount=0&lang=en&enableNavLinks=false"
+    )
+    req = urllib.request.Request(url, headers={
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json",
+    })
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        return json.loads(resp.read().decode()).get("quotes", []) or []
 
 
 def _info_safe(symbol: str) -> dict:
@@ -169,6 +232,33 @@ def compare_tickers(tickers: str = Query(..., description="Comma-separated ticke
             })
         except Exception:
             results.append({"symbol": sym, "error": "No data"})
+    return results
+
+
+@router.get("/search")
+def search_tickers(q: str = Query(..., min_length=1), limit: int = Query(10, ge=1, le=20)):
+    """Real-time ticker search via Yahoo Finance."""
+    try:
+        quotes_raw = _yahoo_search(q.strip(), limit)
+    except Exception as e:
+        import logging
+        logging.getLogger("market").warning(f"Yahoo Finance search error for {q!r}: {e}")
+        return []
+
+    results = []
+    for item in quotes_raw[:limit]:
+        sym = item.get("symbol")
+        if not sym:
+            continue
+        exchange = item.get("exchDisp") or item.get("exchange") or ""
+        qt = item.get("quoteType") or ""
+        results.append({
+            "symbol": sym,
+            "name": item.get("longname") or item.get("shortname") or sym,
+            "exchange": exchange,
+            "type": item.get("typeDisp") or qt.title(),
+            "region": _exchange_region(exchange, qt),
+        })
     return results
 
 
