@@ -11,33 +11,20 @@ Usage:
 
 Log level is controlled by the LOG_LEVEL environment variable (default: warning).
 Set LOG_LEVEL=debug in .env to see all tool calls, API calls, and timings.
+The level is applied at FastAPI startup — before that, standard WARNING applies.
 """
 import logging
-import os
 import time
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Return a logger configured from LOG_LEVEL env var.
+    """Return a named logger; level is inherited from the root logger.
 
-    Handlers are only added once, so calling get_logger with the same name
-    multiple times is safe (no duplicate output).
+    The root logger is configured at FastAPI startup (backend/main.py) based
+    on LOG_LEVEL from .env.  Loggers propagate to root by default so no
+    duplicate handlers are needed here.
     """
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        level_str = os.getenv("LOG_LEVEL", "warning").upper()
-        level = getattr(logging, level_str, logging.WARNING)
-        logger.setLevel(level)
-        handler = logging.StreamHandler()
-        handler.setLevel(level)
-        fmt = logging.Formatter(
-            "[%(levelname)s] %(name)s | %(message)s",
-            datefmt="%H:%M:%S",
-        )
-        handler.setFormatter(fmt)
-        logger.addHandler(handler)
-        logger.propagate = False
-    return logger
+    return logging.getLogger(name)
 
 
 class timed:

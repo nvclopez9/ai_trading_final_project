@@ -100,15 +100,22 @@ for PORT in $API_PORT $FRONTEND_PORT $((FRONTEND_PORT+1)) $((FRONTEND_PORT+2)); 
 done
 sleep 1
 
+# Lee LOG_LEVEL del .env para pasárselo a uvicorn
+_UVICORN_LOG_LEVEL="warning"
+if [[ -f ".env" ]]; then
+  _v=$(grep -E '^LOG_LEVEL=' ".env" 2>/dev/null | cut -d'=' -f2- | tr -d '[:space:]"'"'" | head -1)
+  [[ -n "$_v" ]] && _UVICORN_LOG_LEVEL=$(echo "$_v" | tr '[:upper:]' '[:lower:]')
+fi
+
 # Inicia FastAPI en background
-echo "[run.sh] → Arrancando FastAPI en :$API_PORT ..."
+echo "[run.sh] → Arrancando FastAPI en :$API_PORT (log-level: $_UVICORN_LOG_LEVEL)..."
 "$PY" -m uvicorn backend.main:app \
   --host 0.0.0.0 \
   --port "$API_PORT" \
   --reload \
   --reload-dir src \
   --reload-dir backend \
-  --log-level warning &
+  --log-level "$_UVICORN_LOG_LEVEL" &
 API_PID=$!
 
 # Inicia el dev server de Vite en background
