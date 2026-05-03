@@ -9,7 +9,7 @@ PORTAL_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "GOOGL"]
 
 def _grab_news(ticker: str, limit: int = 4) -> list[dict]:
     try:
-        from src.tools.market_tools import fetch_ticker_news
+        from backend.tools.market_tools import fetch_ticker_news
         items = fetch_ticker_news(ticker, limit=limit) or []
         for it in items:
             it["_origin"] = ticker
@@ -42,7 +42,7 @@ def portal_news(per_ticker: int = 4):
 def ticker_news(symbol: str, limit: int = 10):
     symbol = symbol.strip().upper()
     try:
-        from src.tools.market_tools import fetch_ticker_news
+        from backend.tools.market_tools import fetch_ticker_news
         items = fetch_ticker_news(symbol, limit=limit) or []
         return items
     except Exception as e:

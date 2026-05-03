@@ -5,13 +5,10 @@ Run with:
 
 The React frontend (at http://localhost:5173) proxies /api/* here.
 """
-import sys
 import os
-
-# Make the project root importable from backend/
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
 import logging
+import logging.handlers
+from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -19,7 +16,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import portfolio, market, chat, news, preferences
+from backend.routers import portfolio, market, chat, news, preferences, watchlist
 
 app = FastAPI(
     title="Bot de Inversiones API",
@@ -41,26 +38,54 @@ app.include_router(market.router)
 app.include_router(chat.router)
 app.include_router(news.router)
 app.include_router(preferences.router)
+app.include_router(watchlist.router)
+
+_FILE_FMT = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+_CONSOLE_FMT = logging.Formatter("[%(levelname)s] %(name)s | %(message)s")
 
 
 @app.on_event("startup")
 async def _configure_logging() -> None:
-    """Re-apply log level AFTER uvicorn has set up its own logging config."""
+    """Configure root logger with console + rotating file handler after uvicorn startup."""
     level_str = os.getenv("LOG_LEVEL", "WARNING").upper()
     level = getattr(logging, level_str, logging.WARNING)
 
-    # Configure root logger so all app loggers inherit it
     root = logging.getLogger()
     root.setLevel(level)
-    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
-        _h = logging.StreamHandler()
-        _h.setFormatter(logging.Formatter("[%(levelname)s] %(name)s | %(message)s"))
-        root.addHandler(_h)
 
-    # Keep uvicorn's own loggers quiet to avoid noise at debug level
+    # Console handler (replace any existing StreamHandlers so we own the formatter)
+    root.handlers = [h for h in root.handlers if not isinstance(h, logging.StreamHandler)
+                     or isinstance(h, logging.FileHandler)]
+    console = logging.StreamHandler()
+    console.setFormatter(_CONSOLE_FMT)
+    console.setLevel(level)
+    root.addHandler(console)
+
+    # File handler — rotating, 5 MB per file, 5 backups
+    log_file = os.getenv("LOG_FILE", "logs/bot.log")
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_path,
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(_FILE_FMT)
+    file_handler.setLevel(level)
+    root.addHandler(file_handler)
+
+    # Keep uvicorn's own loggers at WARNING to avoid access-log noise
     _uvicorn_level = max(level, logging.WARNING)
     for _name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logging.getLogger(_name).setLevel(_uvicorn_level)
+
+    logging.getLogger("backend").info(
+        f"Logging configured: level={level_str}, file={log_path.resolve()}"
+    )
 
 
 @app.get("/api/health")

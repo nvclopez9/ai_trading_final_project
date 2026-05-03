@@ -3,8 +3,7 @@
 #
 # Uso:
 #   ./run.sh              -> backend en :8000, frontend en :5173
-#   ./run.sh --legacy     -> modo Streamlit clásico en :8501
-#   PORT=8600 ./run.sh --legacy -> Streamlit en otro puerto
+#   API_PORT=8600 ./run.sh -> backend en puerto custom
 #
 # Compatible con Git Bash, WSL, Linux y macOS.
 # En CMD/PowerShell nativo de Windows usa `bash run.sh`.
@@ -31,32 +30,7 @@ if ! "$PY" -c "import fastapi, uvicorn" 2>/dev/null; then
   "$PY" -m pip install -r requirements.txt --quiet
 fi
 
-# ── Modo Streamlit legacy ─────────────────────────────────────────────────────
-if [[ "${1:-}" == "--legacy" ]]; then
-  PORT="${PORT:-8501}"
-  echo "[run.sh] Liberando puerto $PORT..."
-  if command -v lsof >/dev/null 2>&1; then
-    PIDS=$(lsof -ti tcp:"$PORT" || true)
-    [[ -n "$PIDS" ]] && kill -9 $PIDS 2>/dev/null || true
-  elif command -v netstat >/dev/null 2>&1; then
-    PIDS=$(netstat -ano 2>/dev/null | awk -v port="$PORT" '
-      $4 == "LISTENING" {
-        n = split($2, parts, ":")
-        if (parts[n] == port) print $5
-      }' | sort -u || true)
-    for pid in $PIDS; do
-      [[ -n "$pid" && "$pid" != "0" ]] && taskkill //F //PID "$pid" >/dev/null 2>&1 || true
-    done
-  fi
-  sleep 1
-  echo "[run.sh] Arrancando Streamlit en http://localhost:$PORT ..."
-  exec "$PY" -m streamlit run app.py \
-    --server.port="$PORT" \
-    --server.headless=true \
-    --browser.gatherUsageStats=false
-fi
-
-# ── Modo React + FastAPI (default) ───────────────────────────────────────────
+# ── FastAPI + React ───────────────────────────────────────────────────────────
 API_PORT="${API_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 
@@ -113,7 +87,6 @@ echo "[run.sh] → Arrancando FastAPI en :$API_PORT (log-level: $_UVICORN_LOG_LE
   --host 0.0.0.0 \
   --port "$API_PORT" \
   --reload \
-  --reload-dir src \
   --reload-dir backend \
   --log-level "$_UVICORN_LOG_LEVEL" &
 API_PID=$!

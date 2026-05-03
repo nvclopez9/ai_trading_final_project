@@ -173,7 +173,7 @@ def ticker_history(symbol: str, period: str = "6mo", interval: str = "1d"):
 def ticker_news(symbol: str, limit: int = 10):
     symbol = symbol.strip().upper()
     try:
-        from src.tools.market_tools import fetch_ticker_news
+        from backend.tools.market_tools import fetch_ticker_news
         items = fetch_ticker_news(symbol, limit=limit) or []
         return {"symbol": symbol, "items": items}
     except Exception as e:
@@ -184,7 +184,7 @@ def ticker_news(symbol: str, limit: int = 10):
 def ticker_logo(symbol: str):
     symbol = symbol.strip().upper()
     try:
-        from src.ui.logos import get_logo_url
+        from backend.ui.logos import get_logo_url
         url = get_logo_url(symbol)
         return {"symbol": symbol, "url": url}
     except Exception:
@@ -194,7 +194,7 @@ def ticker_logo(symbol: str):
 @router.get("/hot")
 def hot_tickers():
     try:
-        from src.tools.market_tools import _fetch_fallback_quotes
+        from backend.tools.market_tools import _fetch_fallback_quotes
         rows = _fetch_fallback_quotes()
         gainers = sorted(rows, key=lambda r: r.get("change_pct") or 0, reverse=True)[:10]
         losers = sorted(rows, key=lambda r: r.get("change_pct") or 0)[:10]

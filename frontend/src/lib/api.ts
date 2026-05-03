@@ -25,6 +25,9 @@ export const portfolioApi = {
   cash: (id: number) => _fetch<{cash:number}>(`/portfolios/${id}/cash`),
   buy: (id: number, body: TradeBody) => _fetch<TradeResult>(`/portfolios/${id}/buy`, { method: 'POST', body: JSON.stringify(body) }),
   sell: (id: number, body: TradeBody) => _fetch<TradeResult>(`/portfolios/${id}/sell`, { method: 'POST', body: JSON.stringify(body) }),
+  performance: (id: number) => _fetch<PerformanceData>(`/portfolios/${id}/performance`),
+  realizedPnl: (id: number) => _fetch<RealizedPnL[]>(`/portfolios/${id}/realized-pnl`),
+  sectorDistribution: (id: number) => _fetch<SectorDistribution>(`/portfolios/${id}/sector-distribution`),
 }
 
 // --- Market ---
@@ -44,6 +47,15 @@ export const marketApi = {
 export const newsApi = {
   portal: () => _fetch<NewsItem[]>(`/news/portal`),
   ticker: (symbol: string, limit = 10) => _fetch<NewsItem[]>(`/news/ticker/${symbol}?limit=${limit}`),
+}
+
+// --- Watchlist ---
+export const watchlistApi = {
+  list: (id: number) => _fetch<WatchlistItem[]>(`/portfolios/${id}/watchlist`),
+  add: (id: number, ticker: string, note?: string) =>
+    _fetch<{ ok: boolean }>(`/portfolios/${id}/watchlist`, { method: 'POST', body: JSON.stringify({ ticker, note }) }),
+  remove: (id: number, ticker: string) =>
+    _fetch<{ ok: boolean }>(`/portfolios/${id}/watchlist/${ticker}`, { method: 'DELETE' }),
 }
 
 // --- Preferences ---
@@ -163,4 +175,21 @@ export interface SearchResult {
 export interface Preferences {
   risk_profile: string; time_horizon: string; favorite_sectors: string[];
   excluded_tickers: string[]; onboarded: boolean;
+}
+export interface PerformanceData {
+  dates: string[]
+  portfolio: number[]
+  spy: number[]
+  qqq: number[]
+}
+export interface WatchlistItem {
+  id: number; ticker: string; note: string | null; added_at: string;
+  price: number | null; change_pct: number | null;
+}
+export interface RealizedPnL { ticker: string; realized_pnl: number; total_sold_qty: number; }
+export interface SectorDistribution {
+  sectors: Record<string, number>;
+  top_sector: string | null;
+  top_sector_pct: number;
+  warning: boolean;
 }

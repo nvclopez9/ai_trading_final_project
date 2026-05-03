@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { marketApi, type SearchResult, streamChat } from '../lib/api'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
+import { marketApi, watchlistApi, type SearchResult, type WatchlistItem, streamChat } from '../lib/api'
 import { fmt, fmtPct, fmtVolume, pctColor } from '../lib/utils'
 import { DeltaBadge } from '../components/ui/DeltaBadge'
 import { TickerLogo } from '../components/ui/TickerLogo'
@@ -8,7 +9,7 @@ import { StatTile } from '../components/ui/StatTile'
 import { PriceChart } from '../components/charts/PriceChart'
 import { CompareChart } from '../components/charts/CompareChart'
 import { usePortfolioCtx } from '../context/PortfolioContext'
-import { Search, Loader2, Sparkles, X, Plus } from 'lucide-react'
+import { Search, Loader2, Sparkles, X, Plus, Bookmark, BookmarkCheck } from 'lucide-react'
 
 const PERIODS = ['1mo', '3mo', '6mo', '1y', '2y', '5y'] as const
 type Period = typeof PERIODS[number]
@@ -364,6 +365,8 @@ function AnalysisPanel({ text, loading }: { text: string; loading: boolean }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 export function MarketPage() {
   const { activeId } = usePortfolioCtx()
+  const qc = useQueryClient()
+  const navigate = useNavigate()
   const [symbol, setSymbol] = useState('AAPL')
   const [period, setPeriod] = useState<Period>('6mo')
   const [compareChips, setCompareChips] = useState<string[]>([])
@@ -371,6 +374,28 @@ export function MarketPage() {
   const [analyzeText, setAnalyzeText] = useState('')
   const [analyzing, setAnalyzing] = useState(false)
   const analyzeAbort = useRef<AbortController | null>(null)
+
+  const { data: watchlist = [] } = useQuery({
+    queryKey: ['watchlist', activeId],
+    queryFn: () => watchlistApi.list(activeId),
+    staleTime: 30_000,
+  })
+  const isWatched = watchlist.some((w: WatchlistItem) => w.ticker === symbol)
+
+  const handleToggleWatch = async () => {
+    if (isWatched) {
+      await watchlistApi.remove(activeId, symbol)
+    } else {
+      await watchlistApi.add(activeId, symbol)
+    }
+    qc.invalidateQueries({ queryKey: ['watchlist', activeId] })
+  }
+
+  const handleExplain = (label: string, val: string) => {
+    const msg = `Explícame qué significa ${label} = ${val} para ${symbol}. ¿Es un valor bueno o malo para una empresa de su sector (${ticker?.sector ?? 'el suyo'})? Dame una explicación simple y concreta.`
+    sessionStorage.setItem('chat_prefill', msg)
+    navigate('/chat')
+  }
 
   const { data: ticker, isLoading: loadTicker, error: errTicker } = useQuery({
     queryKey: ['ticker', symbol],
@@ -497,6 +522,17 @@ export function MarketPage() {
               )}
             </div>
             <button
+              onClick={handleToggleWatch}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-90"
+              style={{
+                background: isWatched ? 'rgba(16,185,129,0.12)' : 'var(--surface-2)',
+                color: isWatched ? 'var(--up)' : 'var(--muted)',
+                border: `1px solid ${isWatched ? 'rgba(16,185,129,0.3)' : 'var(--border)'}`,
+              }}
+            >
+              {isWatched ? <><BookmarkCheck size={13} /> En seguimiento</> : <><Bookmark size={13} /> Seguir</>}
+            </button>
+            <button
               onClick={handleAnalyze}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-90 ml-2"
               style={{
@@ -581,9 +617,21 @@ export function MarketPage() {
                   ['Div yield', fundamentals.dividend_yield != null ? fmtPct(fundamentals.dividend_yield * 100) : '—'],
                   ['Objetivo analistas', fmt(fundamentals.analyst_target, 2, '$')],
                 ] as [string, string][]).map(([label, val]) => (
-                  <div key={label}>
+                  <div key={label} className="group relative">
                     <p className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--muted)' }}>{label}</p>
-                    <p className="font-mono font-semibold text-sm" style={{ color: 'var(--text)' }}>{val}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-mono font-semibold text-sm" style={{ color: 'var(--text)' }}>{val}</p>
+                      {val !== '—' && (
+                        <button
+                          onClick={() => handleExplain(label, val)}
+                          title="Explícame esto"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] px-1.5 py-0.5 rounded"
+                          style={{ background: 'rgba(59,130,246,0.12)', color: 'var(--accent)' }}
+                        >
+                          ?
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

@@ -1,6 +1,6 @@
 # Bot de Inversiones con Agente de IA
 
-> Asistente conversacional de inversiones construido con un **agente LangChain** sobre un **LLM local (Ollama)** o en la nube (OpenRouter / NVIDIA NIM). Combina datos de mercado en tiempo real (Yahoo Finance), una base de conocimiento financiera con **RAG** (ChromaDB + PDFs) y una **cartera simulada** persistida en SQLite. Expone todo vía una **API FastAPI** que alimenta una **UI React** oscura con estética fintech.
+> Asistente conversacional de inversiones construido con un **agente LangChain** sobre **NVIDIA NIM** (API compatible OpenAI). Combina datos de mercado en tiempo real (Yahoo Finance), una base de conocimiento financiera con **RAG** (ChromaDB + PDFs) y una **cartera simulada** persistida en SQLite. Expone todo vía una **API FastAPI** que alimenta una **UI React** oscura con estética fintech.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![React](https://img.shields.io/badge/React-19-61DAFB) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688) ![LangChain](https://img.shields.io/badge/LangChain-0.3-green) ![License](https://img.shields.io/badge/license-educational-lightgrey)
 
@@ -12,7 +12,7 @@
 - [Stack tecnológico](#stack-tecnológico)
 - [Requisitos previos](#requisitos-previos)
 - [Instalación y ejecución](#instalación-y-ejecución)
-- [LLM disponibles](#llm-disponibles)
+- [Configuración del LLM](#configuración-del-llm)
 - [API Reference](#api-reference)
 - [Páginas de la UI](#páginas-de-la-ui)
 - [Tools del agente](#tools-del-agente)
@@ -55,8 +55,8 @@
 1. El usuario escribe en el Chat React.
 2. El frontend abre un **SSE stream** a `POST /api/chat/stream`.
 3. FastAPI invoca `agent.invoke()` en un thread pool (el agente es síncrono).
-4. El agente devuelve eventos `tool_call` (con tool name + status) y `message` (respuesta final) vía SSE.
-5. La UI renderiza los indicadores de tool en tiempo real y luego la burbuja de respuesta.
+4. El agente devuelve eventos `thinking` (inicio) y `message` (respuesta final) vía SSE.
+5. La UI renderiza el spinner durante el razonamiento y luego la burbuja de respuesta.
 
 ---
 
@@ -67,11 +67,10 @@
 | **Frontend** | React 19, Vite 8, TypeScript, Tailwind CSS v4, Recharts, TanStack Query, React Router v7, Lucide React |
 | **Backend** | FastAPI, uvicorn, Pydantic v2 |
 | **Agente** | LangChain 0.3 (`create_tool_calling_agent`, `AgentExecutor`, `RunnableWithMessageHistory`) |
-| **LLM** | Ollama local (gemma3:4b, qwen3) · OpenRouter cloud · NVIDIA NIM |
+| **LLM** | NVIDIA NIM (API compatible OpenAI) |
 | **Datos mercado** | yfinance (Yahoo Finance scraping) |
-| **RAG** | ChromaDB, nomic-embed-text / mxbai-embed-large (Ollama), PyPDF |
+| **RAG** | ChromaDB, nomic-embed-text (Ollama), PyPDF |
 | **Persistencia** | SQLite (cartera simulada) |
-| **UI legacy** | Streamlit (modo `--legacy` de run.sh) |
 
 ---
 
@@ -79,8 +78,9 @@
 
 - **Python 3.10–3.13** (recomendado 3.13). Python 3.14 no soportado (pydantic v1 interno de LangChain).
 - **Node.js >= 18** y npm para el frontend React.
-- **Ollama** instalado y en ejecución (`ollama serve`) si usas LLM local.
-- **Conexión a internet** para yfinance y proveedores cloud opcionales.
+- **NVIDIA NIM API key** (`NVIDIA_API_KEY`) para el agente LLM.
+- **Ollama** instalado y en ejecución (`ollama serve`) si usas el RAG con embeddings locales.
+- **Conexión a internet** para yfinance y la API de NVIDIA NIM.
 
 ---
 
@@ -97,21 +97,22 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate  |  Linux/Mac: source .venv/bin/activate
 
 pip install -r requirements.txt
-cp .env.example .env   # edita LLM_PROVIDER, OLLAMA_MODEL, API keys, etc.
+cp .env.example .env   # edita NVIDIA_API_KEY, NVIDIA_MODEL, etc.
 ```
 
-### 2. Modelos Ollama (si usas LLM local)
+### 2. Modelos Ollama (solo para RAG)
 
 ```bash
-ollama pull gemma3:4b          # LLM del agente (default)
 ollama pull nomic-embed-text   # Embeddings para RAG
 # Alternativa más precisa: ollama pull mxbai-embed-large
 ```
 
+Solo se necesitan si vas a usar la herramienta `search_finance_knowledge` (RAG sobre PDFs).
+
 ### 3. Ingestar RAG
 
 ```bash
-python -m src.rag.ingest
+python -m backend.rag.ingest
 ```
 
 Sólo hay que hacerlo una vez (o si añades PDFs nuevos a `data/rag_docs/`).
@@ -119,30 +120,26 @@ Sólo hay que hacerlo una vez (o si añades PDFs nuevos a `data/rag_docs/`).
 ### 4. Arrancar todo
 
 ```bash
-./run.sh
+bash run.sh
 # Abre http://localhost:5173 en el navegador
 ```
 
 El script arranca el backend FastAPI en `:8000` y el dev server de Vite en `:5173`.
 
-**Modo legacy Streamlit:**
-```bash
-./run.sh --legacy   # http://localhost:8501
-```
-
 ---
 
-## LLM disponibles
+## Configuración del LLM
 
-Configura en `.env` sin tocar código:
+El agente usa exclusivamente **NVIDIA NIM**. Configura en `.env`:
 
-| Proveedor | `LLM_PROVIDER` | Var adicional |
-|---|---|---|
-| Ollama local (default) | `ollama` | `OLLAMA_MODEL=gemma3:4b` |
-| OpenRouter cloud | `openrouter` | `OPENROUTER_API_KEY=sk-or-...` + `OPENROUTER_MODEL` |
-| NVIDIA NIM | `nvidia` | `NVIDIA_API_KEY=nvapi-...` + `NVIDIA_MODEL=meta-llama/llama-3.1-70b-instruct` |
+```env
+NVIDIA_API_KEY=nvapi-...
+NVIDIA_MODEL=minimaxai/minimax-m2.7
+```
 
-Si `LLM_PROVIDER=openrouter` o `nvidia` pero falta la API key, se hace **fallback automático a Ollama**.
+El endpoint de NVIDIA NIM sigue el contrato de la API de OpenAI (`/v1/chat/completions`
+con tool-calling nativo), por lo que se usa `ChatOpenAI` de LangChain apuntando a
+`https://integrate.api.nvidia.com/v1`.
 
 ---
 
@@ -157,7 +154,7 @@ La documentación interactiva está en `http://localhost:8000/api/docs` (Swagger
 | `DELETE` | `/api/portfolios/{id}` | Elimina cartera |
 | `POST` | `/api/portfolios/{id}/reset` | Resetea cartera (borra posiciones) |
 | `GET` | `/api/portfolios/{id}/value` | Valor total + P&L |
-| `GET` | `/api/portfolios/{id}/positions` | Posiciones con precio actual y AH |
+| `GET` | `/api/portfolios/{id}/positions` | Posiciones con precio actual |
 | `GET` | `/api/portfolios/{id}/transactions` | Historial de transacciones |
 | `POST` | `/api/portfolios/{id}/buy` | Compra simulada |
 | `POST` | `/api/portfolios/{id}/sell` | Venta simulada |
@@ -198,6 +195,8 @@ La documentación interactiva está en `http://localhost:8000/api/docs` (Swagger
 | `get_ticker_history` | Resumen histórico por periodo | Yahoo Finance |
 | `get_hot_tickers` | Top gainers/losers/actives | Yahoo Finance |
 | `get_ticker_news` | Últimas noticias del ticker | Yahoo Finance |
+| `search_ticker` | Búsqueda de ticker por nombre de empresa | Yahoo Finance |
+| `analyze_news_article` | Contexto de mercado para analizar una noticia | Yahoo Finance |
 | `search_finance_knowledge` | RAG semántico (k=4) sobre PDFs CNMV/SEC | ChromaDB |
 | `portfolio_buy` | Compra simulada con avg ponderado | SQLite |
 | `portfolio_sell` | Venta simulada con validación de qty | SQLite |
@@ -227,6 +226,12 @@ PDFs → PyPDFLoader → RecursiveCharacterTextSplitter(800/120)
 
 Consulta: `similarity_search(query, k=4)` → texto + fuente citada en la respuesta del agente.
 
+Para reindexar (tras añadir PDFs):
+```bash
+rm -rf chroma/
+python -m backend.rag.ingest
+```
+
 ---
 
 ## Tests
@@ -243,13 +248,13 @@ Cubre: ticker inválido → error controlado, flujo buy/sell completo, venta exc
 
 | Requisito | Cómo se cumple |
 |---|---|
-| ≥1 agente LangChain | `AgentExecutor` tool-calling en `src/agent/agent_builder.py` con `RunnableWithMessageHistory` |
-| ≥2 tools | **16 tools** (mercado, RAG, cartera, advisor, análisis) |
+| ≥1 agente LangChain | `AgentExecutor` tool-calling en `backend/agent/agent_builder.py` con `RunnableWithMessageHistory` |
+| ≥2 tools | **18 tools** (mercado, RAG, cartera, advisor, análisis) |
 | RAG sobre doc textual | ChromaDB + nomic-embed-text sobre 10 PDFs CNMV/SEC |
 | Integración agente en flujo app | Chat React → SSE → FastAPI → agente → tools → respuesta |
 | Persistencia / externa | SQLite (cartera) + Yahoo Finance (API externa) + Chroma (RAG) |
 | Acciones sobre otros servicios | Escribe en SQLite, lee de Yahoo Finance, escribe/lee Chroma |
-| Manejo de errores | try/except en cada tool, fallback de providers LLM, errores en SSE como eventos `error` |
+| Manejo de errores | try/except en cada tool, errores en SSE como eventos `error` |
 
 ---
 
@@ -257,7 +262,6 @@ Cubre: ticker inválido → error controlado, flujo buy/sell completo, venta exc
 
 - **yfinance** es scraping no oficial: puede tardar 3-10 s por llamada, devolver datos parciales o fallar puntualmente.
 - **Cartera 100% simulada**: no conecta a ningún broker real.
-- **Rendimiento del LLM**: `gemma3:4b` en CPU puede tardar 10-20 s por respuesta; en GPU es 3-5 s.
 - **Memoria del chat en proceso**: el historial se pierde al reiniciar el servidor.
 - **SSE no es streaming token-a-token**: el agente devuelve la respuesta completa (LangChain síncrono); se ve el spinner durante el razonamiento y luego aparece el texto completo.
 
@@ -267,18 +271,39 @@ Cubre: ticker inválido → error controlado, flujo buy/sell completo, venta exc
 
 ```
 proyecto IA/
-├── app.py                    # Streamlit (modo legacy)
-├── run.sh                    # Arranca backend + frontend (o --legacy para Streamlit)
+├── run.sh                    # Arranca backend FastAPI + frontend React
 ├── requirements.txt          # Deps Python (FastAPI, LangChain, yfinance, etc.)
-├── .env.example              # Variables de entorno (LLM_PROVIDER, API keys, etc.)
+├── .env.example              # Variables de entorno (NVIDIA_API_KEY, etc.)
 ├── backend/
 │   ├── main.py               # FastAPI app con CORS
-│   └── routers/
-│       ├── portfolio.py      # CRUD carteras + compra/venta
-│       ├── market.py         # Datos de mercado (ticker, history, hot, compare)
-│       ├── chat.py           # SSE streaming del agente
-│       ├── news.py           # Portal y búsqueda de noticias
-│       └── preferences.py    # Preferencias del usuario
+│   ├── routers/
+│   │   ├── portfolio.py      # CRUD carteras + compra/venta
+│   │   ├── market.py         # Datos de mercado (ticker, history, hot, compare)
+│   │   ├── chat.py           # SSE streaming del agente
+│   │   ├── news.py           # Portal y búsqueda de noticias
+│   │   └── preferences.py    # Preferencias del usuario
+│   ├── agent/
+│   │   ├── agent_builder.py  # AgentExecutor + RunnableWithMessageHistory + 18 tools
+│   │   ├── prompts.py        # SYSTEM_PROMPT en español
+│   │   ├── singleton.py      # get_agent() singleton de proceso
+│   │   └── verifier.py       # Verificador numérico post-respuesta
+│   ├── tools/
+│   │   ├── market_tools.py   # Herramientas Yahoo Finance
+│   │   ├── rag_tool.py       # Herramienta ChromaDB
+│   │   ├── portfolio_tools.py# Herramientas de cartera
+│   │   ├── advisor_tool.py   # analyze_buy/sell_opportunities
+│   │   ├── analysis_tools.py # compare_tickers, get_fundamentals
+│   │   └── universes.py      # Universos de tickers (LARGE_CAP, ETFs, etc.)
+│   ├── services/
+│   │   ├── db.py             # Schema SQLite + get_conn()
+│   │   ├── portfolio.py      # buy/sell/get_positions/get_portfolio_value
+│   │   ├── portfolios.py     # CRUD multi-cartera
+│   │   ├── preferences.py    # Preferencias de usuario
+│   │   └── watchlist.py      # Watchlist por cartera
+│   ├── rag/
+│   │   └── ingest.py         # Ingesta PDFs → Chroma
+│   └── ui/
+│       └── logos.py          # get_logo_url() con lru_cache
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx           # Router + providers
@@ -293,32 +318,6 @@ proyecto IA/
 │   │       └── utils.ts      # fmt, fmtCurrency, fmtPct, pctColor, etc.
 │   ├── package.json
 │   └── vite.config.ts        # Proxy /api → :8000
-├── src/
-│   ├── agent/
-│   │   ├── agent_builder.py  # AgentExecutor + RunnableWithMessageHistory + 16 tools
-│   │   ├── prompts.py        # SYSTEM_PROMPT en español
-│   │   ├── singleton.py      # get_agent() con @st.cache_resource
-│   │   ├── slash_commands.py # /precio, /cartera, /briefing, etc.
-│   │   ├── streamlit_callbacks.py  # Indicadores de tool en tiempo real
-│   │   └── verifier.py       # Verificador numérico post-respuesta
-│   ├── tools/
-│   │   ├── market_tools.py   # Herramientas Yahoo Finance
-│   │   ├── rag_tool.py       # Herramienta ChromaDB
-│   │   ├── portfolio_tools.py# Herramientas de cartera
-│   │   ├── advisor_tool.py   # analyze_buy/sell_opportunities
-│   │   ├── analysis_tools.py # compare_tickers, get_fundamentals
-│   │   └── universes.py      # Universos de tickers (LARGE_CAP, ETFs, etc.)
-│   ├── services/
-│   │   ├── db.py             # Schema SQLite + get_conn()
-│   │   ├── portfolio.py      # buy/sell/get_positions/get_portfolio_value
-│   │   ├── portfolios.py     # CRUD multi-cartera
-│   │   └── preferences.py    # Preferencias de usuario
-│   ├── rag/
-│   │   └── ingest.py         # Ingesta PDFs → Chroma
-│   └── ui/
-│       ├── components/       # Design system Streamlit (modo legacy)
-│       ├── charts.py         # Gráficos Plotly (modo legacy)
-│       └── logos.py          # get_logo_url() con cache
 ├── data/
 │   ├── portfolio.db          # SQLite (gitignored)
 │   └── rag_docs/             # PDFs fuente
@@ -335,14 +334,11 @@ proyecto IA/
 **El frontend no carga / error de CORS**
 Verifica que FastAPI esté corriendo en `:8000` (`python -m uvicorn backend.main:app --reload`) y que el proxy de Vite esté configurado en `vite.config.ts`.
 
-**"Ollama not running"**
-Ejecuta `ollama serve` en otra terminal antes de arrancar el backend.
-
 **"Base de conocimiento no inicializada"**
-Ejecuta `python -m src.rag.ingest` con Ollama corriendo y `nomic-embed-text` descargado.
+Ejecuta `python -m backend.rag.ingest` con Ollama corriendo y `nomic-embed-text` descargado.
 
-**NVIDIA muy lento**
-Verifica que `NVIDIA_MODEL` en `.env` sea un modelo válido de NIM (ej. `meta-llama/llama-3.1-70b-instruct`). El modelo anterior `z-ai/glm4.7` no existe en la API pública — se ha corregido el default.
+**Error de NVIDIA API**
+Verifica que `NVIDIA_API_KEY` en `.env` sea válido y que `NVIDIA_MODEL` sea un modelo disponible en NIM (ej. `minimaxai/minimax-m2.7`).
 
 **Python 3.14**
 LangChain y ChromaDB usan internamente pydantic v1, que no soporta Python 3.14. Usa Python 3.13.

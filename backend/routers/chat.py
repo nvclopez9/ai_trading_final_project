@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from src.utils.logger import get_logger, timed
+from backend.utils.logger import get_logger, timed
 
 log = get_logger("chat")
 
@@ -25,7 +25,7 @@ class ClearRequest(BaseModel):
 
 def _set_portfolio(portfolio_id: int) -> None:
     try:
-        from src.tools.portfolio_tools import set_active_portfolio
+        from backend.tools.portfolio_tools import set_active_portfolio
         set_active_portfolio(portfolio_id)
     except Exception:
         pass
@@ -41,7 +41,7 @@ async def _stream_agent(message: str, session_id: str, portfolio_id: int) -> Asy
         return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
     try:
-        from src.agent.singleton import get_agent
+        from backend.agent.singleton import get_agent
 
         agent = get_agent()
 
@@ -89,7 +89,7 @@ async def chat_stream(body: ChatRequest):
 @router.post("/clear")
 def clear_session(body: ClearRequest):
     try:
-        from src.agent.agent_builder import _SESSION_STORE
+        from backend.agent.agent_builder import _SESSION_STORE
         _SESSION_STORE.pop(body.session_id, None)
         return {"ok": True}
     except Exception as e:

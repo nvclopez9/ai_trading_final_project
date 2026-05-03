@@ -15,14 +15,14 @@ class PreferencesBody(BaseModel):
 
 @router.get("")
 def get_preferences():
-    from src.services.preferences import get_preferences as _get
+    from backend.services.preferences import get_preferences as _get
     return _get()
 
 
 @router.put("")
 def update_preferences(body: PreferencesBody):
     try:
-        from src.services.preferences import update_preferences as _update
+        from backend.services.preferences import update_preferences as _update
         return _update(
             risk_profile=body.risk_profile,
             time_horizon=body.time_horizon,
