@@ -52,7 +52,7 @@ echo "[run.sh] ║  API:      http://localhost:$API_PORT          ║"
 echo "[run.sh] ║  Frontend: http://localhost:$FRONTEND_PORT      ║"
 echo "[run.sh] ╚══════════════════════════════════════════╝"
 
-# Mata procesos previos en esos puertos (Windows Git Bash + Unix)
+# Mata procesos previos (por puerto + por nombre en Windows)
 _kill_port() {
   local port="$1"
   if command -v lsof >/dev/null 2>&1; then
@@ -69,10 +69,23 @@ _kill_port() {
     done
   fi
 }
+# Kill by port
 for PORT in $API_PORT $FRONTEND_PORT $((FRONTEND_PORT+1)) $((FRONTEND_PORT+2)); do
   _kill_port "$PORT"
 done
-sleep 1
+# Windows: kill lingering uvicorn (python) and vite/node processes by process name
+if command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -NonInteractive -Command "
+    Get-WmiObject Win32_Process | Where-Object {
+      (\$_.Name -eq 'python.exe' -and \$_.CommandLine -match 'uvicorn') -or
+      (\$_.Name -eq 'node.exe' -and \$_.CommandLine -match 'vite')
+    } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue }
+  " 2>/dev/null || true
+elif command -v pkill >/dev/null 2>&1; then
+  pkill -f "uvicorn backend.main" 2>/dev/null || true
+  pkill -f "vite" 2>/dev/null || true
+fi
+sleep 2
 
 # Lee LOG_LEVEL del .env para pasárselo a uvicorn
 _UVICORN_LOG_LEVEL="warning"

@@ -155,7 +155,7 @@ def ticker_history(symbol: str, period: str = "6mo", interval: str = "1d"):
         data = []
         for ts, row in hist.iterrows():
             data.append({
-                "date": ts.strftime("%Y-%m-%d"),
+                "date": ts.strftime("%Y-%m-%dT%H:%M") if interval in ("1m","2m","5m","15m","30m","60m","1h","90m") else ts.strftime("%Y-%m-%d"),
                 "open": round(float(row["Open"]), 4),
                 "high": round(float(row["High"]), 4),
                 "low": round(float(row["Low"]), 4),

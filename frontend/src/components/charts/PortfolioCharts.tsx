@@ -1,9 +1,27 @@
+import { useState } from 'react'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine,
   LineChart, Line,
 } from 'recharts'
 import type { Position, PerformanceData } from '../../lib/api'
+
+const PERF_RANGES = ['1M', '3M', '6M', 'YTD', '1A', 'MAX'] as const
+type PerfRange = typeof PERF_RANGES[number]
+
+function getRangeStartIdx(dates: string[], range: PerfRange): number {
+  if (range === 'MAX' || dates.length === 0) return 0
+  const now = new Date()
+  let cutoff: Date
+  if (range === '1M') cutoff = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())
+  else if (range === '3M') cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate())
+  else if (range === '6M') cutoff = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate())
+  else if (range === 'YTD') cutoff = new Date(now.getFullYear(), 0, 1)
+  else cutoff = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
+  const cutoffStr = cutoff.toISOString().slice(0, 10)
+  const idx = dates.findIndex(d => d >= cutoffStr)
+  return idx === -1 ? 0 : idx
+}
 
 const COLORS = [
   '#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6',
@@ -130,6 +148,8 @@ const TooltipPerf = ({ active, payload, label }: any) => {
 }
 
 export function PerformanceChart({ data }: { data: PerformanceData }) {
+  const [range, setRange] = useState<PerfRange>('MAX')
+
   if (!data || data.dates.length < 2) {
     return (
       <p className="text-center text-sm py-10" style={{ color: 'var(--muted)' }}>
@@ -138,12 +158,18 @@ export function PerformanceChart({ data }: { data: PerformanceData }) {
     )
   }
 
-  const chartData = data.dates.map((d, i) => ({
+  const startIdx = getRangeStartIdx(data.dates, range)
+  const slicedDates = data.dates.slice(startIdx)
+  const slicedPortfolio = data.portfolio.slice(startIdx)
+  const slicedSpy = data.spy.slice(startIdx)
+  const slicedQqq = data.qqq.slice(startIdx)
+
+  const chartData = slicedDates.map((d, i) => ({
     date: d,
     label: fmtAxisDate(d),
-    portfolio: data.portfolio[i],
-    spy: data.spy[i],
-    qqq: data.qqq[i],
+    portfolio: slicedPortfolio[i],
+    spy: slicedSpy[i],
+    qqq: slicedQqq[i],
   }))
 
   // Show ~6 evenly spaced X-axis ticks
@@ -159,7 +185,23 @@ export function PerformanceChart({ data }: { data: PerformanceData }) {
   const tickDates = tickIndices.map(i => chartData[i].date)
 
   return (
-    <div style={{ width: '100%', height: 280 }}>
+    <div>
+      <div className="flex gap-1 mb-2 justify-end">
+        {PERF_RANGES.map(r => (
+          <button
+            key={r}
+            onClick={() => setRange(r)}
+            className="px-2 py-0.5 rounded text-[10px] mono font-semibold transition-all hover:opacity-80"
+            style={{
+              background: r === range ? 'var(--accent)' : 'var(--surface-2)',
+              color: r === range ? 'white' : 'var(--muted)',
+            }}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+      <div style={{ width: '100%', height: 280 }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -218,6 +260,7 @@ export function PerformanceChart({ data }: { data: PerformanceData }) {
           />
         </LineChart>
       </ResponsiveContainer>
+      </div>
     </div>
   )
 }

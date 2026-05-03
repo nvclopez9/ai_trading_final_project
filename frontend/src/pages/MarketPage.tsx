@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { marketApi, watchlistApi, type SearchResult, type WatchlistItem, streamChat } from '../lib/api'
 import { fmt, fmtPct, fmtVolume, pctColor } from '../lib/utils'
 import { DeltaBadge } from '../components/ui/DeltaBadge'
@@ -11,8 +11,19 @@ import { CompareChart } from '../components/charts/CompareChart'
 import { usePortfolioCtx } from '../context/PortfolioContext'
 import { Search, Loader2, Sparkles, X, Plus, Bookmark, BookmarkCheck } from 'lucide-react'
 
-const PERIODS = ['1mo', '3mo', '6mo', '1y', '2y', '5y'] as const
+const PERIODS = ['1d', '5d', '1mo', '6mo', 'ytd', '1y', '5y', 'max'] as const
 type Period = typeof PERIODS[number]
+
+const PERIOD_LABELS: Record<Period, string> = {
+  '1d': '1D', '5d': '1S', '1mo': '1M', '6mo': '6M',
+  'ytd': 'YTD', '1y': '1A', '5y': '5A', 'max': 'MAX',
+}
+
+function getInterval(p: Period): string {
+  if (p === '1d' || p === '5d') return '1h'
+  if (p === '5y' || p === 'max') return '1wk'
+  return '1d'
+}
 
 // ── Quick-access groups ──────────────────────────────────────────────────────
 const QUICK_GROUPS = [
@@ -367,9 +378,15 @@ export function MarketPage() {
   const { activeId } = usePortfolioCtx()
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const [symbol, setSymbol] = useState('AAPL')
+  const location = useLocation()
+  const [symbol, setSymbol] = useState<string>((location.state as any)?.ticker ?? 'AAPL')
   const [period, setPeriod] = useState<Period>('6mo')
   const [compareChips, setCompareChips] = useState<string[]>([])
+
+  useEffect(() => {
+    const t = (location.state as any)?.ticker
+    if (t) { setSymbol(t); window.history.replaceState({}, '') }
+  }, [location.state])
 
   const [analyzeText, setAnalyzeText] = useState('')
   const [analyzing, setAnalyzing] = useState(false)
@@ -405,7 +422,7 @@ export function MarketPage() {
 
   const { data: histData, isLoading: loadHist, error: errHist } = useQuery({
     queryKey: ['ticker-history', symbol, period],
-    queryFn: () => marketApi.history(symbol, period),
+    queryFn: () => marketApi.history(symbol, period, getInterval(period)),
     enabled: !!symbol,
   })
 
@@ -425,7 +442,7 @@ export function MarketPage() {
   const { data: compareHistData } = useQuery({
     queryKey: ['compare-history', allCompareSymbols, period],
     queryFn: async () =>
-      Promise.all(allCompareSymbols.map(s => marketApi.history(s, period).then(h => ({ symbol: s, data: h.data })))),
+      Promise.all(allCompareSymbols.map(s => marketApi.history(s, period, getInterval(period)).then(h => ({ symbol: s, data: h.data })))),
     enabled: compareChips.length > 0,
   })
 
@@ -577,7 +594,7 @@ export function MarketPage() {
                       color: p === period ? 'white' : 'var(--muted)',
                     }}
                   >
-                    {p}
+                    {PERIOD_LABELS[p]}
                   </button>
                 ))}
               </div>

@@ -110,7 +110,10 @@
       "Bash(\".venv/Scripts/python.exe\" -m pip install fastapi \"uvicorn[standard]\")",
       "Bash(\".venv/Scripts/python.exe\" -c \"from backend.main import app; print\\('OK — routes:', len\\(app.routes\\)\\)\")",
       "WebFetch(domain:web.delta.app)",
-      "WebFetch(domain:delta.app)"
+      "WebFetch(domain:delta.app)",
+      "Bash(.venv/Scripts/python.exe -c \"from backend.agent.agent_builder import build_agent\")",
+      "Bash(.venv/Scripts/python.exe -c \"import backend.main\")",
+      "Bash(.venv/Scripts/python.exe -c \"from backend.routers import chat\")"
     ]
   }
 }

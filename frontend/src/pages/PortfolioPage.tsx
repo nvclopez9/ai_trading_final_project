@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { usePortfolioCtx } from '../context/PortfolioContext'
 import { portfolioApi, watchlistApi, type Position, type Transaction, type WatchlistItem, type RealizedPnL, type SectorDistribution } from '../lib/api'
 import { fmt, fmtCurrency, fmtPct, pctColor, fmtDate } from '../lib/utils'
@@ -8,11 +10,12 @@ import { TickerLogo } from '../components/ui/TickerLogo'
 import { AllocationPie, PnLBarChart, PerformanceChart } from '../components/charts/PortfolioCharts'
 import { TrendingUp, TrendingDown, RefreshCw, Loader2, AlertCircle, Trash2, AlertTriangle } from 'lucide-react'
 
-function HoldingRow({ pos }: { pos: Position }) {
+function HoldingRow({ pos, onClick }: { pos: Position; onClick: () => void }) {
   const pnlColor = pctColor(pos.pnl_pct)
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 rounded-xl border transition-all hover:border-[var(--accent)] hover:border-opacity-40"
+      onClick={onClick}
+      className="flex items-center gap-3 px-4 py-3 rounded-xl border transition-all hover:border-[var(--accent)] hover:border-opacity-40 cursor-pointer"
       style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
     >
       <TickerLogo ticker={pos.ticker} size={36} />
@@ -46,10 +49,10 @@ function HoldingRow({ pos }: { pos: Position }) {
   )
 }
 
-function TxRow({ tx }: { tx: Transaction }) {
+function TxRow({ tx, onClick }: { tx: Transaction; onClick: () => void }) {
   const isBuy = tx.side === 'BUY'
   return (
-    <div className="flex items-center gap-3 px-3 py-2 text-sm">
+    <div onClick={onClick} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer rounded-lg hover:bg-[var(--surface-2)] transition-colors">
       <div
         className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
         style={{ background: isBuy ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)' }}
@@ -72,6 +75,8 @@ export function PortfolioPage() {
   const { activeId, portfolios } = usePortfolioCtx()
   const portfolio = portfolios.find(p => p.id === activeId)
   const qc = useQueryClient()
+  const navigate = useNavigate()
+  const [txLimit, setTxLimit] = useState(10)
 
   const { data: watchlistItems = [] } = useQuery({
     queryKey: ['watchlist', activeId],
@@ -97,7 +102,8 @@ export function PortfolioPage() {
 
   const { data: transactions = [] } = useQuery({
     queryKey: ['portfolio-transactions', activeId],
-    queryFn: () => portfolioApi.transactions(activeId, 20),
+    queryFn: () => portfolioApi.transactions(activeId, 200),
+    staleTime: 60_000,
   })
 
   const { data: cashData } = useQuery({
@@ -226,7 +232,13 @@ export function PortfolioPage() {
               <p className="text-sm">Sin posiciones. Usa el chat para comprar.</p>
             </div>
           )}
-          {positions.map(pos => <HoldingRow key={pos.ticker} pos={pos} />)}
+          {positions.map(pos => (
+            <HoldingRow
+              key={pos.ticker}
+              pos={pos}
+              onClick={() => navigate('/market', { state: { ticker: pos.ticker } })}
+            />
+          ))}
         </div>
 
         {/* Sidebar: pie + pnl chart + transactions */}
@@ -323,8 +335,32 @@ export function PortfolioPage() {
                 Transacciones recientes
               </h3>
               <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                {transactions.slice(0, 10).map(tx => <TxRow key={tx.id} tx={tx} />)}
+                {transactions.slice(0, txLimit).map(tx => (
+                  <TxRow
+                    key={tx.id}
+                    tx={tx}
+                    onClick={() => navigate('/market', { state: { ticker: tx.ticker } })}
+                  />
+                ))}
               </div>
+              {transactions.length > txLimit && (
+                <button
+                  onClick={() => setTxLimit(l => l + 10)}
+                  className="w-full mt-2 py-1.5 rounded-lg text-xs hover:opacity-80 transition-opacity"
+                  style={{ color: 'var(--accent)', background: 'rgba(59,130,246,0.08)' }}
+                >
+                  Ver más ({transactions.length - txLimit} restantes)
+                </button>
+              )}
+              {txLimit > 10 && (
+                <button
+                  onClick={() => setTxLimit(10)}
+                  className="w-full mt-1 py-1 rounded-lg text-xs hover:opacity-80 transition-opacity"
+                  style={{ color: 'var(--muted)' }}
+                >
+                  Ver menos
+                </button>
+              )}
             </div>
           )}
 
