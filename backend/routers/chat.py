@@ -1,6 +1,7 @@
 """Chat API routes with SSE streaming."""
 import asyncio
 import json
+import re
 from typing import AsyncIterator
 
 from fastapi import APIRouter
@@ -24,6 +25,36 @@ class ChatRequest(BaseModel):
 
 class ClearRequest(BaseModel):
     session_id: str = "default"
+
+
+# kimi-k2-instruct emits its internal tool-calling format as plain text in the
+# stream alongside the structured tool calls. These patterns need to be stripped
+# so the user only sees the natural-language response.
+_ARTIFACT_RE = re.compile(
+    r"functions\.\w+:\d+\{[^}]*\}?"              # functions.tool_name:1{...}
+    r"|\[\{['\"]type['\"][^\]]+\]"                # [{'type': 'text', 'text': '...'}]
+    r"|\d*<\|[^|>]{1,80}\|>"                      # 2<|tool_call_begin|> or <|token|>
+    r"|<\|tool_calls?_section_(?:begin|end)\|>"   # section markers
+    r"|\d+<\|",                                   # dangling N<|
+    re.DOTALL,
+)
+
+
+def _extract_text(content) -> str:
+    """Normalise AIMessageChunk content — handles str and list[dict] forms."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            item.get("text", "") if isinstance(item, dict) else str(item)
+            for item in content
+        )
+    return str(content) if content else ""
+
+
+def _clean(raw: str) -> str:
+    """Strip kimi-k2 internal tool-call artifacts from a streamed text chunk."""
+    return _ARTIFACT_RE.sub("", raw)
 
 
 def _set_portfolio(portfolio_id: int) -> None:
@@ -65,7 +96,8 @@ async def _stream_agent(message: str, session_id: str, portfolio_id: int) -> Asy
 
                 if kind == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
-                    content = getattr(chunk, "content", "") if chunk else ""
+                    raw = _extract_text(getattr(chunk, "content", "") if chunk else "")
+                    content = _clean(raw)
                     if content:
                         yield _sse("token", {"content": content})
 

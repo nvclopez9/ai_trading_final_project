@@ -45,6 +45,7 @@ Puntos didácticos clave para la exposición oral:
 """
 # Librería estándar + dotenv para leer NVIDIA_MODEL y NVIDIA_API_KEY del .env.
 import os
+import uuid
 from dotenv import load_dotenv
 
 from backend.utils.logger import get_logger
@@ -56,7 +57,12 @@ log = get_logger("agent.builder")
 # tool-calling). Solo hay que cambiar base_url y la api_key.
 from langchain_openai import ChatOpenAI
 # AgentExecutor y create_tool_calling_agent: montan el bucle del agente.
+import json as _json
+import re as _re
 from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents.output_parsers.tools import ToolsAgentOutputParser
+from langchain.agents.format_scratchpad.tools import format_to_tool_messages
+from langchain_core.runnables import RunnablePassthrough
 # Prompt templates: ChatPromptTemplate compone system + chat_history + human
 # + agent_scratchpad (variables que el AgentExecutor rellena en cada iteración).
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -154,6 +160,84 @@ def _build_llm():
     return _build_nvidia_llm()
 
 
+# Matches kimi-k2's text-format tool calls: functions.tool_name:N{"arg": val}
+_TEXT_TOOL_RE = _re.compile(r'functions\.(\w+):\d+(\{[^}]*\})', _re.DOTALL)
+
+
+def _content_to_str(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+    return str(content) if content else ""
+
+
+def _extract_text_tool_args(content_str: str, tool_name: str) -> dict | None:
+    """Parse args from kimi-k2's text-format tool call when structured args are empty."""
+    for m in _TEXT_TOOL_RE.finditer(content_str):
+        if m.group(1) == tool_name:
+            try:
+                return _json.loads(m.group(2))
+            except Exception:
+                pass
+    return None
+
+
+class _PatchedToolsOutputParser(ToolsAgentOutputParser):
+    """Parcha dos incompatibilidades de kimi-k2-instruct con LangChain:
+
+    1. tool_call_id=None  → genera un UUID corto.
+    2. args={}  → extrae los argumentos del texto de la respuesta, donde el
+       modelo escribe los tool calls en su propio formato de texto:
+       ``functions.portfolio_buy:1{"ticker": "NVDA", "qty": 10}``
+    """
+
+    def parse_result(self, result, *, partial: bool = False):
+        if result:
+            gen = result[-1]
+            msg = getattr(gen, "message", None)
+            if msg is not None and getattr(msg, "tool_calls", None):
+                content_str = _content_to_str(getattr(msg, "content", ""))
+                fixed = []
+                for tc in msg.tool_calls:
+                    if not isinstance(tc, dict):
+                        fixed.append(tc)
+                        continue
+                    tc = dict(tc)
+                    # Fix 1: null id
+                    if not tc.get("id"):
+                        tc["id"] = uuid.uuid4().hex[:8]
+                    # Fix 2: empty args — recover from text-format tool call
+                    if not tc.get("args"):
+                        recovered = _extract_text_tool_args(content_str, tc.get("name", ""))
+                        if recovered:
+                            log.debug(f"recovered args for {tc['name']} from text: {recovered}")
+                            tc["args"] = recovered
+                    fixed.append(tc)
+                try:
+                    patched_msg = msg.model_copy(update={"tool_calls": fixed})
+                    result = list(result)
+                    try:
+                        result[-1] = gen.model_copy(update={"message": patched_msg})
+                    except Exception:
+                        result[-1] = type(gen)(message=patched_msg)
+                except AttributeError:
+                    msg.tool_calls = fixed
+        return super().parse_result(result, partial=partial)
+
+
+def _build_tool_calling_agent(llm, tools, prompt):
+    """Construye el agente con output parser parcheado para ids nulos."""
+    return (
+        RunnablePassthrough.assign(
+            agent_scratchpad=lambda x: format_to_tool_messages(x["intermediate_steps"])
+        )
+        | prompt
+        | llm.bind_tools(tools)
+        | _PatchedToolsOutputParser()
+    )
+
+
 def build_agent() -> RunnableWithMessageHistory:
     """Construye y devuelve el agente listo para ``invoke()``.
 
@@ -223,7 +307,7 @@ def build_agent() -> RunnableWithMessageHistory:
     # Creamos el agente usando la variante tool-calling (no ReAct). Esta
     # función devuelve un Runnable que, dado un input, produce AgentAction
     # (llamada a tool) o AgentFinish (respuesta final) en cada paso.
-    agent = create_tool_calling_agent(llm, tools, prompt)
+    agent = _build_tool_calling_agent(llm, tools, prompt)
 
     # AgentExecutor es el bucle que ejecuta el agente:
     #  - verbose=False: no volcamos trazas al stdout (la UI lo maneja aparte).
