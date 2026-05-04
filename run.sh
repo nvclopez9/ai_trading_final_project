@@ -10,6 +10,9 @@
 
 set -euo pipefail
 
+# Muestra el error y pausa antes de cerrar (útil en terminales que se cierran solas)
+trap 'echo; echo "[run.sh] ❌ Error en línea $LINENO — revisa arriba."; read -r -p "Presiona Enter para cerrar..." _' ERR
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 

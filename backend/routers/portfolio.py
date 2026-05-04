@@ -123,20 +123,22 @@ def get_performance(portfolio_id: int):
         # Transactions come back sorted DESC; reverse to get ASC
         all_txs = list(reversed(all_txs))
 
-        # 3. First transaction date
+        # 3. First transaction date — go back 7 days so we always have pre-buy
+        # trading days in the chart (handles weekend/holiday transaction dates)
         first_ts = all_txs[0]["ts"]
-        first_date = first_ts[:10]  # "YYYY-MM-DD"
+        first_date_obj = date.fromisoformat(first_ts[:10])
+        fetch_start = (first_date_obj - timedelta(days=7)).isoformat()
 
         # 4. Unique tickers
         tickers = list({tx["ticker"] for tx in all_txs})
 
-        # 5. Fetch price history
-        today_str = date.today().isoformat()
+        # 5. Fetch price history; end is exclusive in yfinance so use tomorrow
+        fetch_end = (date.today() + timedelta(days=1)).isoformat()
         all_symbols = tickers + ["SPY", "QQQ"]
         raw = yf.download(
             all_symbols,
-            start=first_date,
-            end=today_str,
+            start=fetch_start,
+            end=fetch_end,
             interval="1d",
             auto_adjust=True,
             progress=False,

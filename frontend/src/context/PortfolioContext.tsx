@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import { portfolioApi, type Portfolio } from '../lib/api'
 
+const STORAGE_KEY = 'activePortfolioId'
+
 interface PortfolioCtx {
   portfolios: Portfolio[]
   activeId: number
@@ -12,9 +14,21 @@ const Ctx = createContext<PortfolioCtx>({
   portfolios: [], activeId: 1, setActiveId: () => {}, reload: () => {},
 })
 
+function readStoredId(): number {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY)
+    return v ? parseInt(v, 10) : 1
+  } catch { return 1 }
+}
+
 export function PortfolioProvider({ children }: { children: ReactNode }) {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([])
-  const [activeId, setActiveId] = useState<number>(1)
+  const [activeId, setActiveIdState] = useState<number>(readStoredId)
+
+  const setActiveId = (id: number) => {
+    setActiveIdState(id)
+    try { localStorage.setItem(STORAGE_KEY, String(id)) } catch {}
+  }
 
   const load = async () => {
     try {

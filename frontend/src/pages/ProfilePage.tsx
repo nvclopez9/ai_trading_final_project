@@ -17,9 +17,9 @@ const RISK_OPTIONS = [
 ]
 
 const HORIZON_OPTIONS = [
-  { value: 'corto_plazo', label: 'Corto plazo', desc: 'Menos de 2 años' },
-  { value: 'medio_plazo', label: 'Medio plazo', desc: '2 a 5 años' },
-  { value: 'largo_plazo', label: 'Largo plazo', desc: 'Más de 5 años' },
+  { value: 'corto', label: 'Corto plazo', desc: 'Menos de 2 años' },
+  { value: 'medio', label: 'Medio plazo', desc: '2 a 5 años' },
+  { value: 'largo', label: 'Largo plazo', desc: 'Más de 5 años' },
 ]
 
 export function ProfilePage() {
@@ -32,7 +32,7 @@ export function ProfilePage() {
   })
 
   const [risk, setRisk] = useState<string>('moderado')
-  const [horizon, setHorizon] = useState<string>('medio_plazo')
+  const [horizon, setHorizon] = useState<string>('medio')
   const [sectors, setSectors] = useState<string[]>([])
   const [excluded, setExcluded] = useState<string[]>([])
   const [tickerInput, setTickerInput] = useState('')
@@ -41,7 +41,7 @@ export function ProfilePage() {
   useEffect(() => {
     if (!prefs) return
     setRisk(prefs.risk_profile ?? 'moderado')
-    setHorizon(prefs.time_horizon ?? 'medio_plazo')
+    setHorizon(prefs.time_horizon ?? 'medio')
     setSectors(prefs.favorite_sectors ?? [])
     setExcluded(prefs.excluded_tickers ?? [])
   }, [prefs])
@@ -85,17 +85,17 @@ export function ProfilePage() {
 
   const cardBase: React.CSSProperties = {
     background: 'var(--surface)',
-    border: '1px solid var(--border)',
+    border: '2px solid var(--border)',
     borderRadius: 12,
     padding: '12px 16px',
     cursor: 'pointer',
-    transition: 'border-color 0.15s, color 0.15s',
+    transition: 'border-color 0.15s, background 0.15s',
     textAlign: 'left',
     width: '100%',
   }
 
   const cardActive: React.CSSProperties = {
-    borderColor: 'var(--accent)',
+    border: '2px solid var(--accent)',
     background: 'var(--accent-dim)',
   }
 

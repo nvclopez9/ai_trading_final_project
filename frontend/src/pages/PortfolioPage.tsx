@@ -208,7 +208,7 @@ export function PortfolioPage() {
         />
       </div>
 
-      {perfData && perfData.dates.length >= 2 && (
+      {perfData && perfData.dates.length >= 1 && (
         <div className="rounded-xl border p-4 mb-6" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
           <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--muted)' }}>
             Rendimiento vs índices

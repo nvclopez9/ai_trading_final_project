@@ -243,13 +243,21 @@ export function ChatPage() {
     setLoading(true)
 
     abortRef.current = streamChat(text.trim(), SESSION_ID, activeId, (type, data) => {
-      if (type === 'tool_call') {
+      if (type === 'token') {
+        // Token streaming: append each fragment and hide spinner on first token
+        setMessages(prev => prev.map(m =>
+          m.id === botMsg.id
+            ? { ...m, content: (m.content ?? '') + String((data as any).content ?? ''), loading: false }
+            : m
+        ))
+      } else if (type === 'tool_call') {
         setMessages(prev => prev.map(m =>
           m.id === botMsg.id
             ? { ...m, toolEvents: [...(m.toolEvents ?? []), data as unknown as ToolEvent] }
             : m
         ))
       } else if (type === 'message') {
+        // Full message fallback (legacy path)
         setMessages(prev => prev.map(m =>
           m.id === botMsg.id
             ? { ...m, content: String((data as any).content ?? ''), loading: false }
@@ -262,6 +270,17 @@ export function ChatPage() {
             : m
         ))
       } else if (type === 'done') {
+        // Post-process: strip truncated preamble fragments that appear before the
+        // first ## heading. Pattern: leading text (<200 chars) that does not end
+        // with punctuation or a newline, immediately followed by a ## heading.
+        setMessages(prev => prev.map(m => {
+          if (m.id !== botMsg.id) return m
+          const cleaned = m.content.replace(
+            /^([^\n]{1,199}?)(?=##)/,
+            (match) => /[.,;:!?\n]$/.test(match.trimEnd()) ? match : ''
+          )
+          return cleaned !== m.content ? { ...m, content: cleaned } : m
+        }))
         setLoading(false)
       }
     })

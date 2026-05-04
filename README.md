@@ -1,8 +1,8 @@
 # Bot de Inversiones con Agente de IA
 
-> Asistente conversacional de inversiones construido con un **agente LangChain** sobre **NVIDIA NIM** (API compatible OpenAI). Combina datos de mercado en tiempo real (Yahoo Finance), una base de conocimiento financiera con **RAG** (ChromaDB + PDFs) y una **cartera simulada** persistida en SQLite. Expone todo vía una **API FastAPI** que alimenta una **UI React** oscura con estética fintech.
+> Asistente conversacional de inversiones construido con un **agente LangChain** sobre **NVIDIA NIM**. Combina datos de mercado en tiempo real (Yahoo Finance), una base de conocimiento financiera con **RAG** (ChromaDB + PDFs) y una **cartera simulada** persistida en SQLite. Expone todo vía una **API FastAPI** que alimenta una **UI React** con estética fintech oscura.
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![React](https://img.shields.io/badge/React-19-61DAFB) ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688) ![LangChain](https://img.shields.io/badge/LangChain-0.3-green) ![License](https://img.shields.io/badge/license-educational-lightgrey)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![React](https://img.shields.io/badge/React-19-61DAFB) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688) ![LangChain](https://img.shields.io/badge/LangChain-0.3-green)
 
 ---
 
@@ -11,16 +11,16 @@
 - [Arquitectura](#arquitectura)
 - [Stack tecnológico](#stack-tecnológico)
 - [Requisitos previos](#requisitos-previos)
-- [Instalación y ejecución](#instalación-y-ejecución)
-- [Configuración del LLM](#configuración-del-llm)
+- [Instalación](#instalación)
+- [Configuración](#configuración)
+- [Arrancar la aplicación](#arrancar-la-aplicación)
+- [RAG — Indexar documentos](#rag--indexar-documentos)
 - [API Reference](#api-reference)
 - [Páginas de la UI](#páginas-de-la-ui)
 - [Tools del agente](#tools-del-agente)
-- [RAG](#rag)
 - [Tests](#tests)
-- [Cumplimiento del enunciado](#cumplimiento-del-enunciado)
-- [Limitaciones conocidas](#limitaciones-conocidas)
 - [Estructura del proyecto](#estructura-del-proyecto)
+- [Cumplimiento del enunciado](#cumplimiento-del-enunciado)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -28,35 +28,38 @@
 ## Arquitectura
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  React UI  (Vite + Tailwind + Recharts)  :5173       │
-│  Chat │ Cartera │ Mercado │ Top │ Noticias │ Ayuda   │
-└──────────────────┬───────────────────────────────────┘
-                   │ REST + SSE (/api/*)
-┌──────────────────▼───────────────────────────────────┐
-│  FastAPI Backend                          :8000       │
-│  /api/portfolios │ /api/market │ /api/chat/stream     │
-│  /api/news       │ /api/preferences                   │
-└──────────────────┬───────────────────────────────────┘
-                   │
-        ┌──────────┴────────────┐
-        ▼                       ▼
-   LangChain Agent         SQLite DB
-   (tool-calling)         (cartera)
-   RunnableWithHistory
-        │
-   ┌────┴──────────────────────┐
-   ▼        ▼         ▼        ▼
- yfinance  Chroma    Portfolio Advisor
- (market)  (RAG)     tools     tools
+┌──────────────────────────────────────────────────────────┐
+│  React 19 + Vite  (frontend — :5173)                     │
+│  Chat · Cartera · Mercado · Top · Noticias · Perfil      │
+└─────────────────────┬────────────────────────────────────┘
+                      │  REST + SSE streaming (/api/*)
+┌─────────────────────▼────────────────────────────────────┐
+│  FastAPI  (backend — :8000)                              │
+│  /api/chat  /api/portfolios  /api/market  /api/news      │
+└─────────────────────┬────────────────────────────────────┘
+                      │
+         ┌────────────▼──────────────┐
+         │  LangChain AgentExecutor  │  ← create_tool_calling_agent
+         │  + RunnableWithHistory    │  ← memoria por session_id
+         └────────────┬──────────────┘
+                      │  tool calling (18 herramientas)
+     ┌────────────────┼──────────────────────────┐
+     ▼                ▼                          ▼
+  yfinance       ChromaDB (RAG)            SQLite
+  Yahoo Finance  PDFs financieros          Carteras simuladas
+                      │
+                      ▼
+            NVIDIA NIM API (LLM)
+            mistralai/mistral-small-3.1-24b-instruct
 ```
 
 ### Flujo del agente
-1. El usuario escribe en el Chat React.
+1. El usuario escribe en el Chat.
 2. El frontend abre un **SSE stream** a `POST /api/chat/stream`.
-3. FastAPI invoca `agent.invoke()` en un thread pool (el agente es síncrono).
-4. El agente devuelve eventos `thinking` (inicio) y `message` (respuesta final) vía SSE.
-5. La UI renderiza el spinner durante el razonamiento y luego la burbuja de respuesta.
+3. FastAPI invoca `agent.astream_events()` — los tokens fluyen en tiempo real.
+4. El LLM decide qué herramientas invocar; LangChain las ejecuta y devuelve las observaciones.
+5. Cada token de la respuesta final se envía al cliente conforme se genera.
+6. El frontend acumula los tokens y los renderiza progresivamente (sin esperar el final).
 
 ---
 
@@ -64,169 +67,129 @@
 
 | Capa | Tecnologías |
 |---|---|
-| **Frontend** | React 19, Vite 8, TypeScript, Tailwind CSS v4, Recharts, TanStack Query, React Router v7, Lucide React |
-| **Backend** | FastAPI, uvicorn, Pydantic v2 |
-| **Agente** | LangChain 0.3 (`create_tool_calling_agent`, `AgentExecutor`, `RunnableWithMessageHistory`) |
-| **LLM** | NVIDIA NIM (API compatible OpenAI) |
-| **Datos mercado** | yfinance (Yahoo Finance scraping) |
-| **RAG** | ChromaDB, nomic-embed-text (Ollama), PyPDF |
-| **Persistencia** | SQLite (cartera simulada) |
+| **Frontend** | React 19, Vite, TypeScript, Tailwind CSS v4, Recharts, TanStack Query, React Router |
+| **Backend** | FastAPI, uvicorn, Pydantic v2, Python 3.13 |
+| **Agente IA** | LangChain 0.3 — `create_tool_calling_agent`, `AgentExecutor`, `RunnableWithMessageHistory` |
+| **LLM** | NVIDIA NIM (`mistralai/mistral-small-3.1-24b-instruct`) vía API compatible OpenAI |
+| **Datos mercado** | yfinance (Yahoo Finance) |
+| **RAG** | ChromaDB + mxbai-embed-large (Ollama) + PyPDF |
+| **Persistencia** | SQLite (carteras y transacciones) |
+| **Logs** | Python `logging` + `RotatingFileHandler` (5 MB × 5 backups) |
 
 ---
 
 ## Requisitos previos
 
-- **Python 3.10–3.13** (recomendado 3.13). Python 3.14 no soportado (pydantic v1 interno de LangChain).
-- **Node.js >= 18** y npm para el frontend React.
-- **NVIDIA NIM API key** (`NVIDIA_API_KEY`) para el agente LLM.
-- **Ollama** instalado y en ejecución (`ollama serve`) si usas el RAG con embeddings locales.
-- **Conexión a internet** para yfinance y la API de NVIDIA NIM.
+- **Python 3.10–3.13** (recomendado 3.13)
+- **Node.js >= 18** y npm
+- **NVIDIA Build API key** — [obtener aquí](https://build.nvidia.com)
+- **Ollama** (solo para el RAG):
+  ```bash
+  ollama pull mxbai-embed-large
+  ```
 
 ---
 
-## Instalación y ejecución
-
-### 1. Backend Python
+## Instalación
 
 ```bash
-# Clonar e instalar
-git clone <url>
+# 1. Clonar el repositorio
+git clone <repo-url>
 cd "proyecto IA"
 
+# 2. Entorno virtual Python
 python -m venv .venv
-# Windows: .venv\Scripts\activate  |  Linux/Mac: source .venv/bin/activate
+# Windows: .venv\Scripts\activate  |  Linux/macOS: source .venv/bin/activate
 
+# 3. Dependencias Python
 pip install -r requirements.txt
-cp .env.example .env   # edita NVIDIA_API_KEY, NVIDIA_MODEL, etc.
+
+# 4. Dependencias frontend
+cd frontend && npm install && cd ..
+
+# 5. Configurar variables de entorno
+cp .env.example .env
+# → editar .env con tu NVIDIA_API_KEY
 ```
 
-### 2. Modelos Ollama (solo para RAG)
+---
 
-```bash
-ollama pull nomic-embed-text   # Embeddings para RAG
-# Alternativa más precisa: ollama pull mxbai-embed-large
+## Configuración
+
+Archivo `.env` en la raíz del proyecto:
+
+```env
+# Obligatorio — API Key de NVIDIA Build
+NVIDIA_API_KEY=nvapi-...
+
+# Modelo LLM (cualquier modelo de integrate.api.nvidia.com con tool calling)
+NVIDIA_MODEL=mistralai/mistral-small-3.1-24b-instruct
+
+# Nivel de log: debug | info | warning | error
+LOG_LEVEL=info
+
+# Ruta del archivo de logs
+LOG_FILE=logs/bot.log
+
+# Base de datos SQLite
+DB_PATH=data/portfolio.db
+
+# ChromaDB (RAG)
+CHROMA_DIR=chroma
+
+# Modelo de embeddings (Ollama)
+EMBEDDINGS_MODEL=mxbai-embed-large
 ```
 
-Solo se necesitan si vas a usar la herramienta `search_finance_knowledge` (RAG sobre PDFs).
+### Modelos NVIDIA recomendados
 
-### 3. Ingestar RAG
+| Modelo | Parámetros | Velocidad aprox. | Calidad tool calling |
+|---|---|---|---|
+| `meta/llama-3.1-8b-instruct` | 8B | ~15s | Básica |
+| `mistralai/mistral-small-3.1-24b-instruct` | 24B | ~45s | **Buena ✓** |
+| `meta/llama-3.1-70b-instruct` | 70B | ~90s | Excelente |
+
+---
+
+## Arrancar la aplicación
+
+### Windows (recomendado)
+```
+Doble clic en  start.bat
+```
+Abre dos ventanas CMD (backend y frontend) y lanza el navegador automáticamente.
+
+> **Importante:** Para aplicar cambios en el código o en `.env`, cierra las ventanas del backend/frontend y vuelve a abrir `start.bat`. El servidor **no** se recarga automáticamente.
+
+### Bash (Linux / macOS / WSL / Git Bash)
+```bash
+bash run.sh
+```
+
+### Manual
+```bash
+# Terminal 1 — Backend
+.venv/Scripts/python.exe -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+
+# Terminal 2 — Frontend
+cd frontend && npm run dev -- --port 5173
+```
+
+Accede a `http://localhost:5173`
+
+---
+
+## RAG — Indexar documentos
+
+Antes de usar el chat con preguntas conceptuales, indexa los PDFs:
 
 ```bash
+# 1. Coloca los PDFs en data/rag_docs/
+# 2. Con Ollama corriendo:
 python -m backend.rag.ingest
 ```
 
-Sólo hay que hacerlo una vez (o si añades PDFs nuevos a `data/rag_docs/`).
-
-### 4. Arrancar todo
-
-```bash
-bash run.sh
-# Abre http://localhost:5173 en el navegador
-```
-
-El script arranca el backend FastAPI en `:8000` y el dev server de Vite en `:5173`.
-
----
-
-## Configuración del LLM
-
-El agente usa exclusivamente **NVIDIA NIM**. Configura en `.env`:
-
-```env
-NVIDIA_API_KEY=nvapi-...
-NVIDIA_MODEL=minimaxai/minimax-m2.7
-```
-
-El endpoint de NVIDIA NIM sigue el contrato de la API de OpenAI (`/v1/chat/completions`
-con tool-calling nativo), por lo que se usa `ChatOpenAI` de LangChain apuntando a
-`https://integrate.api.nvidia.com/v1`.
-
----
-
-## API Reference
-
-La documentación interactiva está en `http://localhost:8000/api/docs` (Swagger UI).
-
-| Método | Endpoint | Descripción |
-|---|---|---|
-| `GET` | `/api/portfolios` | Lista carteras |
-| `POST` | `/api/portfolios` | Crea cartera |
-| `DELETE` | `/api/portfolios/{id}` | Elimina cartera |
-| `POST` | `/api/portfolios/{id}/reset` | Resetea cartera (borra posiciones) |
-| `GET` | `/api/portfolios/{id}/value` | Valor total + P&L |
-| `GET` | `/api/portfolios/{id}/positions` | Posiciones con precio actual |
-| `GET` | `/api/portfolios/{id}/transactions` | Historial de transacciones |
-| `POST` | `/api/portfolios/{id}/buy` | Compra simulada |
-| `POST` | `/api/portfolios/{id}/sell` | Venta simulada |
-| `GET` | `/api/market/ticker/{symbol}` | Estado actual del ticker |
-| `GET` | `/api/market/ticker/{symbol}/history` | Histórico OHLCV |
-| `GET` | `/api/market/ticker/{symbol}/news` | Noticias del ticker |
-| `GET` | `/api/market/hot` | Gainers / Losers / Actives |
-| `GET` | `/api/market/compare?tickers=AAPL,MSFT` | Comparativa de tickers |
-| `GET` | `/api/market/fundamentals/{symbol}` | Ratios financieros |
-| `GET` | `/api/news/portal` | Agregado multi-ticker |
-| `GET` | `/api/news/ticker/{symbol}` | Noticias de un ticker |
-| `POST` | `/api/chat/stream` | Chat con el agente (SSE) |
-| `POST` | `/api/chat/clear` | Limpia historial de sesión |
-| `GET` | `/api/preferences` | Preferencias del usuario |
-| `PUT` | `/api/preferences` | Actualiza preferencias |
-
----
-
-## Páginas de la UI
-
-| Página | Ruta | Descripción |
-|---|---|---|
-| **Chat IA** | `/chat` | Conversación con el agente, indicadores de tool en tiempo real, quick pills |
-| **Mi Cartera** | `/portfolio` | Posiciones con P&L, valor AH, gráfico de distribución, transacciones |
-| **Mis Carteras** | `/portfolios` | Gestión multi-cartera: crear, resetear, eliminar |
-| **Mercado** | `/market` | Ticker search, gráfico histórico, fundamentales, comparador |
-| **Top del Día** | `/top` | Gainers / Losers / Más activos del S&P 500 |
-| **Noticias** | `/news` | Portal multi-ticker + buscador; "Analizar con IA" envía al chat |
-| **Ayuda** | `/help` | Guía de uso, slash commands, disclaimer |
-
----
-
-## Tools del agente
-
-| Tool | Descripción | Fuente |
-|---|---|---|
-| `get_ticker_status` | Precio, cambio, P/E, market cap | Yahoo Finance |
-| `get_ticker_history` | Resumen histórico por periodo | Yahoo Finance |
-| `get_hot_tickers` | Top gainers/losers/actives | Yahoo Finance |
-| `get_ticker_news` | Últimas noticias del ticker | Yahoo Finance |
-| `search_ticker` | Búsqueda de ticker por nombre de empresa | Yahoo Finance |
-| `analyze_news_article` | Contexto de mercado para analizar una noticia | Yahoo Finance |
-| `search_finance_knowledge` | RAG semántico (k=4) sobre PDFs CNMV/SEC | ChromaDB |
-| `portfolio_buy` | Compra simulada con avg ponderado | SQLite |
-| `portfolio_sell` | Venta simulada con validación de qty | SQLite |
-| `portfolio_view` | Tabla de posiciones con P&L | SQLite + Yahoo |
-| `portfolio_transactions` | Historial de operaciones | SQLite |
-| `portfolio_list` | Lista carteras disponibles | SQLite |
-| `portfolio_set_risk` | Cambia perfil de riesgo | SQLite |
-| `portfolio_set_markets` | Cambia mercados objetivo | SQLite |
-| `analyze_buy_opportunities` | Propone compras según riesgo | Yahoo + SQLite |
-| `analyze_sell_candidates` | Propone ventas según P&L | Yahoo + SQLite |
-| `compare_tickers` | Compara hasta 6 tickers | Yahoo Finance |
-| `get_fundamentals` | Fundamentales detallados | Yahoo Finance |
-
----
-
-## RAG
-
-Corpus de 10 PDFs oficiales:
-- **CNMV (España):** glosario, guía del accionista, renta fija, fondos de inversión, manual universitarios, psicología económica, fiscalidad IRPF acciones e fondos.
-- **SEC / Investor.gov (USA):** Saving and Investing Roadmap, Mutual Funds and ETFs.
-
-Pipeline:
-```
-PDFs → PyPDFLoader → RecursiveCharacterTextSplitter(800/120)
-     → OllamaEmbeddings(nomic-embed-text) → ChromaDB
-```
-
-Consulta: `similarity_search(query, k=4)` → texto + fuente citada en la respuesta del agente.
-
-Para reindexar (tras añadir PDFs):
+Para reindexar tras añadir PDFs nuevos:
 ```bash
 rm -rf chroma/
 python -m backend.rag.ingest
@@ -234,36 +197,84 @@ python -m backend.rag.ingest
 
 ---
 
+## API Reference
+
+Documentación interactiva: `http://localhost:8000/api/docs`
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `GET` | `/api/portfolios` | Lista carteras |
+| `POST` | `/api/portfolios` | Crea cartera |
+| `DELETE` | `/api/portfolios/{id}` | Elimina cartera |
+| `POST` | `/api/portfolios/{id}/reset` | Resetea cartera |
+| `GET` | `/api/portfolios/{id}/positions` | Posiciones con precio actual |
+| `GET` | `/api/portfolios/{id}/transactions` | Historial de transacciones |
+| `GET` | `/api/portfolios/{id}/performance` | Rendimiento histórico vs SPY/QQQ |
+| `GET` | `/api/portfolios/{id}/realized-pnl` | P&L realizado por ticker |
+| `GET` | `/api/portfolios/{id}/sector-distribution` | Distribución sectorial |
+| `GET/POST/DELETE` | `/api/portfolios/{id}/watchlist` | Watchlist de la cartera |
+| `GET` | `/api/market/ticker/{symbol}` | Estado actual del ticker |
+| `GET` | `/api/market/history/{symbol}` | Histórico OHLCV |
+| `GET` | `/api/market/search` | Búsqueda de tickers por nombre |
+| `GET` | `/api/market/hot` | Gainers / Losers / Actives |
+| `GET` | `/api/news/{symbol}` | Noticias de un ticker |
+| `POST` | `/api/chat/stream` | Chat con el agente (SSE, token a token) |
+| `POST` | `/api/chat/clear` | Limpia historial de sesión |
+| `GET/PUT` | `/api/preferences` | Perfil y preferencias del usuario |
+| `GET` | `/api/health` | Health check |
+
+---
+
+## Páginas de la UI
+
+| Página | Ruta | Descripción |
+|---|---|---|
+| **Chat IA** | `/chat` | Conversación con el agente — streaming token a token, indicadores de tool en tiempo real |
+| **Mi Cartera** | `/portfolio` | Posiciones, P&L, gráfico de distribución, rendimiento vs SPY/QQQ, transacciones paginadas |
+| **Mis Carteras** | `/portfolios` | Gestión multi-cartera: crear, resetear, eliminar |
+| **Mercado** | `/market` | Búsqueda de tickers, gráfico con filtros de tiempo, fundamentales, noticias, watchlist |
+| **Top del Día** | `/top` | Mayores subidas, bajadas y más activos |
+| **Noticias** | `/news` | Feed de noticias financieras; "Analizar con IA" envía al chat |
+| **Perfil** | `/profile` | Preferencias del usuario (riesgo, horizonte, mercados) |
+
+---
+
+## Tools del agente
+
+El agente dispone de **18 herramientas**. Para la documentación detallada de cada una (parámetros, comportamiento, ejemplos de uso) consulta [`docs/TOOLS.md`](docs/TOOLS.md).
+
+| Tool | Descripción | Fuente de datos |
+|---|---|---|
+| `get_ticker_status` | Precio, cambio diario, P/E, market cap | Yahoo Finance |
+| `get_ticker_history` | Resumen histórico por periodo | Yahoo Finance |
+| `get_hot_tickers` | Top gainers / losers / actives | Yahoo Finance |
+| `get_ticker_news` | Últimas noticias del ticker | Yahoo Finance |
+| `search_ticker` | Búsqueda de símbolo por nombre de empresa | Yahoo Finance |
+| `analyze_news_article` | Contexto de mercado para analizar una noticia | Yahoo Finance |
+| `search_finance_knowledge` | RAG semántico (k=4) sobre PDFs financieros | ChromaDB |
+| `portfolio_buy` | Compra simulada al precio de mercado | SQLite |
+| `portfolio_sell` | Venta simulada con validación | SQLite |
+| `portfolio_view` | Posiciones, P&L y patrimonio | SQLite + Yahoo |
+| `portfolio_transactions` | Historial de operaciones | SQLite |
+| `portfolio_list` | Lista todas las carteras | SQLite |
+| `portfolio_set_risk` | Cambia perfil de riesgo (conservador/moderado/agresivo) | SQLite |
+| `portfolio_set_markets` | Cambia mercados objetivo | SQLite |
+| `analyze_buy_opportunities` | Propone compras según riesgo y mercado | Yahoo + SQLite |
+| `analyze_sell_candidates` | Propone ventas según P&L de posiciones | Yahoo + SQLite |
+| `compare_tickers` | Tabla comparativa de 2–6 tickers | Yahoo Finance |
+| `get_fundamentals` | Ratios financieros completos (P/E, ROE, FCF…) | Yahoo Finance |
+
+---
+
 ## Tests
 
 ```bash
-pytest tests/
+# Tests unitarios
+pytest tests/ -v
+
+# Evaluación automática con escenarios reales (requiere servidor corriendo)
+python -m tests.ai_eval
 ```
-
-Cubre: ticker inválido → error controlado, flujo buy/sell completo, venta excedida lanza ValueError, valor de cartera con ticker stale.
-
----
-
-## Cumplimiento del enunciado
-
-| Requisito | Cómo se cumple |
-|---|---|
-| ≥1 agente LangChain | `AgentExecutor` tool-calling en `backend/agent/agent_builder.py` con `RunnableWithMessageHistory` |
-| ≥2 tools | **18 tools** (mercado, RAG, cartera, advisor, análisis) |
-| RAG sobre doc textual | ChromaDB + nomic-embed-text sobre 10 PDFs CNMV/SEC |
-| Integración agente en flujo app | Chat React → SSE → FastAPI → agente → tools → respuesta |
-| Persistencia / externa | SQLite (cartera) + Yahoo Finance (API externa) + Chroma (RAG) |
-| Acciones sobre otros servicios | Escribe en SQLite, lee de Yahoo Finance, escribe/lee Chroma |
-| Manejo de errores | try/except en cada tool, errores en SSE como eventos `error` |
-
----
-
-## Limitaciones conocidas
-
-- **yfinance** es scraping no oficial: puede tardar 3-10 s por llamada, devolver datos parciales o fallar puntualmente.
-- **Cartera 100% simulada**: no conecta a ningún broker real.
-- **Memoria del chat en proceso**: el historial se pierde al reiniciar el servidor.
-- **SSE no es streaming token-a-token**: el agente devuelve la respuesta completa (LangChain síncrono); se ve el spinner durante el razonamiento y luego aparece el texto completo.
 
 ---
 
@@ -271,84 +282,117 @@ Cubre: ticker inválido → error controlado, flujo buy/sell completo, venta exc
 
 ```
 proyecto IA/
-├── run.sh                    # Arranca backend FastAPI + frontend React
-├── requirements.txt          # Deps Python (FastAPI, LangChain, yfinance, etc.)
-├── .env.example              # Variables de entorno (NVIDIA_API_KEY, etc.)
-├── backend/
-│   ├── main.py               # FastAPI app con CORS
-│   ├── routers/
-│   │   ├── portfolio.py      # CRUD carteras + compra/venta
-│   │   ├── market.py         # Datos de mercado (ticker, history, hot, compare)
-│   │   ├── chat.py           # SSE streaming del agente
-│   │   ├── news.py           # Portal y búsqueda de noticias
-│   │   └── preferences.py    # Preferencias del usuario
+├── .env                      # Variables de entorno (no incluir en git)
+├── .env.example              # Plantilla de configuración
+├── .gitignore
+├── requirements.txt          # Dependencias Python
+├── start.bat                 # Lanzador Windows (recomendado)
+├── run.sh                    # Lanzador Bash (Linux/macOS/WSL)
+│
+├── backend/                  # FastAPI + lógica del agente
+│   ├── main.py               # App FastAPI, CORS, logging startup
 │   ├── agent/
-│   │   ├── agent_builder.py  # AgentExecutor + RunnableWithMessageHistory + 18 tools
-│   │   ├── prompts.py        # SYSTEM_PROMPT en español
-│   │   ├── singleton.py      # get_agent() singleton de proceso
-│   │   └── verifier.py       # Verificador numérico post-respuesta
-│   ├── tools/
-│   │   ├── market_tools.py   # Herramientas Yahoo Finance
-│   │   ├── rag_tool.py       # Herramienta ChromaDB
-│   │   ├── portfolio_tools.py# Herramientas de cartera
-│   │   ├── advisor_tool.py   # analyze_buy/sell_opportunities
+│   │   ├── agent_builder.py  # AgentExecutor + RunnableWithMessageHistory
+│   │   ├── prompts.py        # System prompt del agente en español
+│   │   ├── singleton.py      # Caché del agente (una instancia por proceso)
+│   │   └── verifier.py       # Validaciones post-respuesta
+│   ├── routers/              # Endpoints FastAPI
+│   │   ├── chat.py           # POST /api/chat/stream — SSE token a token
+│   │   ├── portfolio.py      # CRUD carteras, compra/venta, performance
+│   │   ├── market.py         # Precios, historial, búsqueda
+│   │   ├── news.py           # Noticias por ticker
+│   │   ├── watchlist.py      # Watchlist por cartera
+│   │   └── preferences.py    # Perfil del usuario
+│   ├── tools/                # Herramientas del agente (@tool de LangChain)
+│   │   ├── market_tools.py   # Mercado: precios, historial, hot, noticias, búsqueda
+│   │   ├── portfolio_tools.py# Cartera: buy, sell, view, transactions, list, set_risk/markets
+│   │   ├── advisor_tool.py   # analyze_buy_opportunities, analyze_sell_candidates
 │   │   ├── analysis_tools.py # compare_tickers, get_fundamentals
-│   │   └── universes.py      # Universos de tickers (LARGE_CAP, ETFs, etc.)
-│   ├── services/
-│   │   ├── db.py             # Schema SQLite + get_conn()
-│   │   ├── portfolio.py      # buy/sell/get_positions/get_portfolio_value
+│   │   ├── rag_tool.py       # search_finance_knowledge (ChromaDB)
+│   │   └── universes.py      # Universos de tickers por tier y clase de activo
+│   ├── services/             # Lógica de negocio sin dependencias del agente
+│   │   ├── db.py             # Schema SQLite + conexión
+│   │   ├── portfolio.py      # buy/sell/positions/value para cartera activa
 │   │   ├── portfolios.py     # CRUD multi-cartera
 │   │   ├── preferences.py    # Preferencias de usuario
-│   │   └── watchlist.py      # Watchlist por cartera
+│   │   └── watchlist.py      # Watchlist
 │   ├── rag/
-│   │   └── ingest.py         # Ingesta PDFs → Chroma
-│   └── ui/
-│       └── logos.py          # get_logo_url() con lru_cache
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx           # Router + providers
-│   │   ├── context/          # PortfolioContext (cartera activa)
-│   │   ├── pages/            # ChatPage, PortfolioPage, MarketPage, TopPage, NewsPage, HelpPage
-│   │   ├── components/
-│   │   │   ├── layout/       # Sidebar con nav + selector de cartera
-│   │   │   ├── ui/           # StatTile, DeltaBadge, TickerLogo
-│   │   │   └── charts/       # PriceChart (AreaChart), PortfolioCharts (PieChart)
-│   │   └── lib/
-│   │       ├── api.ts        # Fetch wrappers + tipos TypeScript + streamChat (SSE)
-│   │       └── utils.ts      # fmt, fmtCurrency, fmtPct, pctColor, etc.
-│   ├── package.json
-│   └── vite.config.ts        # Proxy /api → :8000
+│   │   └── ingest.py         # Script: PDF → chunks → embeddings → ChromaDB
+│   └── utils/
+│       └── logger.py         # get_logger(), timed() context manager
+│
+├── frontend/                 # React + TypeScript + Vite
+│   └── src/
+│       ├── App.tsx           # Router + providers
+│       ├── pages/            # ChatPage, PortfolioPage, MarketPage, TopPage, NewsPage…
+│       ├── components/
+│       │   ├── layout/       # Sidebar con nav + selector de cartera
+│       │   ├── charts/       # PriceChart, PortfolioCharts, CompareChart
+│       │   └── ui/           # StatTile, DeltaBadge, TickerLogo, Toast
+│       ├── context/          # PortfolioContext (cartera activa global)
+│       └── lib/
+│           ├── api.ts        # Cliente HTTP, tipos TypeScript, streamChat (SSE)
+│           └── utils.ts      # Formatters: fmtCurrency, fmtPct, pctColor…
+│
+├── docs/
+│   └── TOOLS.md              # Documentación detallada de las 18 herramientas
+│
+├── tests/
+│   ├── test_tools.py         # Tests unitarios de herramientas
+│   ├── test_verifier.py      # Tests del verificador
+│   └── ai_eval/              # Evaluación automática con escenarios reales
+│
 ├── data/
-│   ├── portfolio.db          # SQLite (gitignored)
-│   └── rag_docs/             # PDFs fuente
-├── chroma/                   # Vectorstore ChromaDB (gitignored)
-└── tests/
-    ├── conftest.py
-    └── test_tools.py         # Smoke tests de tools y flujo de cartera
+│   ├── portfolio.db          # SQLite — gitignored
+│   └── rag_docs/             # PDFs fuente para el RAG
+│
+├── logs/
+│   └── bot.log               # Logs rotativos — gitignored
+│
+└── chroma/                   # Vectorstore ChromaDB — gitignored
 ```
+
+---
+
+## Cumplimiento del enunciado
+
+| Requisito | Implementación |
+|---|---|
+| ≥1 agente LangChain | `AgentExecutor` + `create_tool_calling_agent` en `backend/agent/agent_builder.py` con `RunnableWithMessageHistory` |
+| ≥2 herramientas | **18 tools** en `backend/tools/` — ver [`docs/TOOLS.md`](docs/TOOLS.md) |
+| RAG sobre documento textual | ChromaDB + PDFs financieros CNMV/SEC → `search_finance_knowledge` |
+| Integración agente en flujo app | Chat React → SSE → FastAPI → `astream_events` → tokens en tiempo real |
+| Persistencia | SQLite (carteras) + ChromaDB (vectores RAG) |
+| Integración con servicio externo | Yahoo Finance (yfinance) + NVIDIA NIM API |
+| Acciones sobre otros servicios | Escribe en SQLite, lee de Yahoo Finance, lee/escribe ChromaDB |
+| Manejo de errores | try/except en cada tool, timeout en el agente, errores como eventos SSE |
 
 ---
 
 ## Troubleshooting
 
-**El frontend no carga / error de CORS**
-Verifica que FastAPI esté corriendo en `:8000` (`python -m uvicorn backend.main:app --reload`) y que el proxy de Vite esté configurado en `vite.config.ts`.
+**El chat no responde / se queda colgado**
+- Verifica que el servidor se haya reiniciado con `start.bat` tras cambiar `.env`.
+- Comprueba en el log (`logs/bot.log`) qué modelo está usando y si hay errores 404/401.
+- El modelo `NVIDIA_MODEL` debe soportar tool calling — usa los recomendados de la tabla.
 
 **"Base de conocimiento no inicializada"**
-Ejecuta `python -m backend.rag.ingest` con Ollama corriendo y `nomic-embed-text` descargado.
+- Ejecuta `python -m backend.rag.ingest` con Ollama corriendo y `mxbai-embed-large` descargado.
 
-**Error de NVIDIA API**
-Verifica que `NVIDIA_API_KEY` en `.env` sea válido y que `NVIDIA_MODEL` sea un modelo disponible en NIM (ej. `minimaxai/minimax-m2.7`).
+**Error 404 de NVIDIA API**
+- El modelo indicado en `NVIDIA_MODEL` no está disponible en tu API key/tier.
+- Usa `mistralai/mistral-small-3.1-24b-instruct` o `meta/llama-3.1-8b-instruct`.
 
-**Python 3.14**
-LangChain y ChromaDB usan internamente pydantic v1, que no soporta Python 3.14. Usa Python 3.13.
+**El frontend no carga / error CORS**
+- Verifica que FastAPI esté en `:8000` y el proxy de Vite esté configurado en `vite.config.ts`.
+
+**yfinance devuelve datos vacíos**
+- Yahoo Finance cambia sus endpoints periódicamente. Actualiza yfinance: `pip install -U yfinance`.
 
 ---
 
-## Licencia
-
-Uso educativo. Práctica IX del curso de Agentes de IA. MIT-like — sin garantías, sin asesoramiento financiero.
-
 ## Autor
 
-**Iván Della Ventura** — Práctica IX (Agentes de IA)
+**Iván Della Ventura** — Práctica IX — Agentes de IA
+
+*Este software es educativo. No constituye asesoramiento financiero.*

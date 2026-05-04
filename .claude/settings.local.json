@@ -113,7 +113,14 @@
       "WebFetch(domain:delta.app)",
       "Bash(.venv/Scripts/python.exe -c \"from backend.agent.agent_builder import build_agent\")",
       "Bash(.venv/Scripts/python.exe -c \"import backend.main\")",
-      "Bash(.venv/Scripts/python.exe -c \"from backend.routers import chat\")"
+      "Bash(.venv/Scripts/python.exe -c \"from backend.routers import chat\")",
+      "Bash(.venv/Scripts/python.exe -c \"import langchain; import langchain_core; print\\('langchain:', langchain.__version__\\); print\\('langchain_core:', langchain_core.__version__\\)\")",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(powershell.exe -NoProfile -Command ' *)",
+      "Bash(powershell.exe *)",
+      "WebFetch(domain:build.nvidia.com)",
+      "WebFetch(domain:docs.api.nvidia.com)"
     ]
   }
 }
