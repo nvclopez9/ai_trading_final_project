@@ -42,7 +42,7 @@
          │  LangChain AgentExecutor  │  ← create_tool_calling_agent
          │  + RunnableWithHistory    │  ← memoria por session_id
          └────────────┬──────────────┘
-                      │  tool calling (18 herramientas)
+                      │  tool calling (19 herramientas)
      ┌────────────────┼──────────────────────────┐
      ▼                ▼                          ▼
   yfinance       ChromaDB (RAG)            SQLite
@@ -50,7 +50,7 @@
                       │
                       ▼
             NVIDIA NIM API (LLM)
-            mistralai/mistral-small-3.1-24b-instruct
+            moonshotai/kimi-k2-instruct
 ```
 
 ### Flujo del agente
@@ -70,7 +70,7 @@
 | **Frontend** | React 19, Vite, TypeScript, Tailwind CSS v4, Recharts, TanStack Query, React Router |
 | **Backend** | FastAPI, uvicorn, Pydantic v2, Python 3.13 |
 | **Agente IA** | LangChain 0.3 — `create_tool_calling_agent`, `AgentExecutor`, `RunnableWithMessageHistory` |
-| **LLM** | NVIDIA NIM (`mistralai/mistral-small-3.1-24b-instruct`) vía API compatible OpenAI |
+| **LLM** | NVIDIA NIM (`moonshotai/kimi-k2-instruct`) vía API compatible OpenAI |
 | **Datos mercado** | yfinance (Yahoo Finance) |
 | **RAG** | ChromaDB + mxbai-embed-large (Ollama) + PyPDF |
 | **Persistencia** | SQLite (carteras y transacciones) |
@@ -123,7 +123,7 @@ Archivo `.env` en la raíz del proyecto:
 NVIDIA_API_KEY=nvapi-...
 
 # Modelo LLM (cualquier modelo de integrate.api.nvidia.com con tool calling)
-NVIDIA_MODEL=mistralai/mistral-small-3.1-24b-instruct
+NVIDIA_MODEL=moonshotai/kimi-k2-instruct
 
 # Nivel de log: debug | info | warning | error
 LOG_LEVEL=info
@@ -146,8 +146,11 @@ EMBEDDINGS_MODEL=mxbai-embed-large
 | Modelo | Parámetros | Velocidad aprox. | Calidad tool calling |
 |---|---|---|---|
 | `meta/llama-3.1-8b-instruct` | 8B | ~15s | Básica |
-| `mistralai/mistral-small-3.1-24b-instruct` | 24B | ~45s | **Buena ✓** |
+| `mistralai/mistral-small-3.1-24b-instruct` | 24B | ~45s | Buena |
+| `moonshotai/kimi-k2-instruct` | 1T MoE | ~30–90s | **Muy buena ✓ (modelo actual)** |
 | `meta/llama-3.1-70b-instruct` | 70B | ~90s | Excelente |
+
+> **Nota kimi-k2:** usa un formato de tool-calling propio que difiere del estándar OpenAI. El backend incluye un parser parcheado (`_PatchedToolsOutputParser`) que normaliza sus respuestas automáticamente.
 
 ---
 
@@ -241,7 +244,7 @@ Documentación interactiva: `http://localhost:8000/api/docs`
 
 ## Tools del agente
 
-El agente dispone de **18 herramientas**. Para la documentación detallada de cada una (parámetros, comportamiento, ejemplos de uso) consulta [`docs/TOOLS.md`](docs/TOOLS.md).
+El agente dispone de **19 herramientas**. Para la documentación detallada de cada una (parámetros, comportamiento, ejemplos de uso) consulta [`docs/TOOLS.md`](docs/TOOLS.md).
 
 | Tool | Descripción | Fuente de datos |
 |---|---|---|
@@ -252,7 +255,8 @@ El agente dispone de **18 herramientas**. Para la documentación detallada de ca
 | `search_ticker` | Búsqueda de símbolo por nombre de empresa | Yahoo Finance |
 | `analyze_news_article` | Contexto de mercado para analizar una noticia | Yahoo Finance |
 | `search_finance_knowledge` | RAG semántico (k=4) sobre PDFs financieros | ChromaDB |
-| `portfolio_buy` | Compra simulada al precio de mercado | SQLite |
+| `portfolio_buy` | Compra simulada de N acciones al precio de mercado | SQLite |
+| `portfolio_buy_all_cash` | Compra usando TODO el efectivo disponible (calcula qty automáticamente) | SQLite + Yahoo |
 | `portfolio_sell` | Venta simulada con validación | SQLite |
 | `portfolio_view` | Posiciones, P&L y patrimonio | SQLite + Yahoo |
 | `portfolio_transactions` | Historial de operaciones | SQLite |
@@ -375,6 +379,15 @@ proyecto IA/
 - Verifica que el servidor se haya reiniciado con `start.bat` tras cambiar `.env`.
 - Comprueba en el log (`logs/bot.log`) qué modelo está usando y si hay errores 404/401.
 - El modelo `NVIDIA_MODEL` debe soportar tool calling — usa los recomendados de la tabla.
+
+**Error 429 — Too Many Requests (NVIDIA NIM)**
+- NVIDIA NIM tiene rate limits por cuenta gratuita. Espera unos segundos y reintenta.
+- La UI ya muestra un mensaje amigable en lugar del error crudo.
+
+**"UNIQUE constraint failed: positions.ticker"**
+- La base de datos tenía un schema antiguo con unicidad global por ticker. El backend lo
+  migra automáticamente al arrancar (`init_db()` en `backend/services/db.py`). Si persiste,
+  elimina `data/portfolio.db` y reinicia (se pierden las carteras simuladas).
 
 **"Base de conocimiento no inicializada"**
 - Ejecuta `python -m backend.rag.ingest` con Ollama corriendo y `mxbai-embed-large` descargado.

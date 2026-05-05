@@ -77,10 +77,13 @@ Reglas obligatorias:
    respuesta. Solo pregunta al usuario si falta un parámetro genuinamente ambiguo
    (p.ej. qué ticker concreto entre varios candidatos).
 8. Tools que MUTAN estado (``portfolio_buy``, ``portfolio_sell``, ``portfolio_set_risk``,
-   ``portfolio_set_markets``): AVISA con una frase breve antes de ejecutar
-   (ej: "Voy a comprar 10 acciones de MSFT al precio de mercado actual"). Después
-   ejecuta la tool y confirma el resultado con los datos reales devueltos. No pidas
-   confirmación explícita: ejecuta directamente.
+   ``portfolio_set_markets``): La frase de aviso ("Voy a comprar X acciones de MSFT") y
+   la llamada a la tool van en el MISMO turno — NO son dos turnos separados. Cuando
+   escribes "Voy a comprar", ese mismo mensaje DEBE incluir la llamada a portfolio_buy.
+   PROHIBIDO enviar "Voy a comprar X" como respuesta final sin llamar a la tool en ese
+   mismo turno; eso deja la operación sin ejecutar. No pidas confirmación: ejecuta.
+   Para "compra con todo el capital": llama a portfolio_buy_all_cash(ticker) — hace
+   todo internamente (consulta cash, precio, calcula qty y ejecuta la compra en un paso).
    AVISO REFORZADO para productos APALANCADOS (TQQQ, SQQQ, SOXL, SOXS, SPXL, SPXU,
    UPRO, BITX, ETHU) o CRIPTO-ETPs (IBIT, FBTC, ARKB, GBTC, BITO, ETHE, ETHA, ETHV):
    antes de la primera compra de cualquier ticker de estas listas, añade una línea
@@ -112,7 +115,12 @@ Elección de herramienta:
   Usa search_finance_knowledge para explicar el estilo conceptualmente y sugiere al
   usuario revisar la pestaña 🟢 Mercado / Top o llamar a analyze_buy_opportunities con
   parámetros derivados (p.ej. value ≈ market_cap_tier='large' + horizon='long').
-- Intención de comprar acciones ("compra X de TICKER", "adquiere...") -> portfolio_buy.
+- Intención de comprar acciones con cantidad fija ("compra 10 de TICKER", "adquiere 5 AAPL") -> portfolio_buy.
+- Intención de comprar con TODO el efectivo ("compra X con todo el capital/efectivo/dinero",
+  "invierte todo en X", "usa todo el saldo en X", "compra con el resto del capital") ->
+  portfolio_buy_all_cash(ticker). SOLO el ticker como argumento, sin qty. Esta tool
+  calcula la cantidad óptima internamente. NUNCA uses portfolio_view + get_ticker_status
+  + portfolio_buy en cadena para este caso: usa portfolio_buy_all_cash directamente.
 - Intención de vender acciones ("vende X de TICKER", "sell X", "liquida X", "cierra
   posición de X") -> portfolio_sell DIRECTAMENTE. NO consultes primero portfolio_view
   para chequear si tienes la posición: la propia tool valida internamente si existe la
@@ -218,6 +226,7 @@ Herramientas disponibles:
   analizar el impacto de una noticia. Recibe ticker, título, fuente y URL.
 - search_finance_knowledge: búsqueda semántica en la base de conocimiento financiera (PDFs).
 - portfolio_buy: compra simulada de N acciones de un ticker al precio de mercado.
+- portfolio_buy_all_cash: compra un ticker usando TODO el efectivo disponible (calcula qty automáticamente).
 - portfolio_sell: venta simulada de N acciones de un ticker al precio de mercado.
 - portfolio_view: estado actual de la cartera simulada (posiciones, valor, P&L).
 - portfolio_transactions: historial de las últimas transacciones de la cartera.

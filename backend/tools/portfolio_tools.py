@@ -8,6 +8,8 @@ NOTA IMPORTANTE: NO existe tool para modificar ``initial_cash``. El dinero
 inicial de una cartera es inmutable desde el agente: el usuario debe crear
 una nueva cartera desde la UI.
 """
+import math as _math
+
 from langchain_core.tools import tool
 
 from backend.services import portfolio
@@ -78,11 +80,17 @@ def portfolio_buy(ticker: str, qty: float) -> str:
         with timed(log, f"portfolio.buy({symbol}, {qty_f})"):
             r = portfolio.buy(ticker, qty_f, portfolio_id=pid)
         _LAST_DUPLICATE_WARNING = None
+        total = r['qty'] * r['price']
+        cash_left = portfolios.cash_available(pid)
         log.debug(f"result: bought {r['qty']:g} {r['ticker']} @ ${r['price']:.2f}")
+        suffix = _active_name_suffix()
         return (
-            f"{OK_ICON} Compra ejecutada{_active_name_suffix()}: {r['qty']:g} acciones de {r['ticker']} "
-            f"a ${r['price']:.2f}. "
-            f"Posición total: {r['new_qty']:g} @ avg ${r['new_avg_price']:.2f}."
+            f"{OK_ICON} Compra ejecutada{suffix}\n"
+            f"  Ticker:          {r['ticker']} ({r['qty']:g} acciones)\n"
+            f"  Precio mercado:  ${r['price']:.2f} / acción\n"
+            f"  Total pagado:    ${total:,.2f}\n"
+            f"  Posición total:  {r['new_qty']:g} acc. @ avg ${r['new_avg_price']:.2f}\n"
+            f"  Efectivo rest.:  ${cash_left:,.2f}"
         )
     except ValueError as e:
         log.warning(f"portfolio_buy({ticker}): {e}")
@@ -280,3 +288,60 @@ def portfolio_set_markets(markets: str) -> str:
     except Exception as e:
         log.warning(f"portfolio_set_markets({markets}) unexpected error: {e}")
         return f"{ERR_ICON} Error actualizando mercados: {e}"
+
+
+@tool
+def portfolio_buy_all_cash(ticker: str) -> str:
+    """Compra un ticker usando TODO el efectivo disponible de la cartera activa.
+
+    Calcula automáticamente cuántas acciones enteras se pueden comprar con
+    el saldo disponible al precio actual de mercado (qty = floor(cash / precio)).
+
+    USA ESTA TOOL cuando el usuario diga:
+      - "compra X con todo el capital / el resto del capital / todo el efectivo"
+      - "invierte todo en X"
+      - "usa todo el dinero disponible para comprar X"
+    No uses portfolio_buy en esos casos; usa esta tool directamente.
+
+    Args:
+        ticker: símbolo del ticker a comprar (ej: NVDA, AAPL, MSFT)
+    """
+    log.debug(f"portfolio_buy_all_cash called: {ticker}")
+    try:
+        pid = get_active_portfolio_id()
+        symbol = str(ticker).strip().upper()
+
+        cash = portfolios.cash_available(pid)
+        if cash <= 0:
+            return f"{ERR_ICON} No hay efectivo disponible en la cartera#{pid}."
+
+        price = portfolio._current_price(symbol)
+        if price is None:
+            return f"{ERR_ICON} No se pudo obtener el precio actual de '{symbol}'."
+
+        qty = _math.floor(cash / price)
+        if qty <= 0:
+            return (
+                f"{ERR_ICON} El efectivo disponible (${cash:,.2f}) no alcanza para "
+                f"comprar 1 acción de {symbol} (precio: ${price:.2f})."
+            )
+
+        log.debug(f"portfolio_buy_all_cash: cash={cash:.2f} price={price:.2f} qty={qty}")
+        r = portfolio.buy(symbol, float(qty), price, portfolio_id=pid)
+        total = r['qty'] * r['price']
+        cash_left = portfolios.cash_available(pid)
+        suffix = _active_name_suffix()
+        return (
+            f"{OK_ICON} Compra con todo el capital{suffix}\n"
+            f"  Ticker:          {r['ticker']} ({r['qty']:g} acciones)\n"
+            f"  Precio mercado:  ${r['price']:.2f} / acción\n"
+            f"  Total invertido: ${total:,.2f}\n"
+            f"  Posición total:  {r['new_qty']:g} acc. @ avg ${r['new_avg_price']:.2f}\n"
+            f"  Efectivo rest.:  ${cash_left:,.2f}"
+        )
+    except ValueError as e:
+        log.warning(f"portfolio_buy_all_cash({ticker}): {e}")
+        return f"{ERR_ICON} No se pudo ejecutar la compra: {e}"
+    except Exception as e:
+        log.warning(f"portfolio_buy_all_cash({ticker}) unexpected error: {e}")
+        return f"{ERR_ICON} Error inesperado al comprar '{ticker}': {e}"

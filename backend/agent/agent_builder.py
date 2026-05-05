@@ -85,6 +85,7 @@ from backend.tools.market_tools import (
 from backend.tools.rag_tool import search_finance_knowledge
 from backend.tools.portfolio_tools import (
     portfolio_buy,
+    portfolio_buy_all_cash,
     portfolio_sell,
     portfolio_view,
     portfolio_transactions,
@@ -148,9 +149,9 @@ def _build_nvidia_llm() -> ChatOpenAI:
         api_key=api_key,
         base_url="https://integrate.api.nvidia.com/v1",
         temperature=0.1,
-        max_tokens=1024,
+        max_tokens=2048,
         streaming=True,
-        request_timeout=60.0,
+        request_timeout=120.0,
         max_retries=2,
     )
 
@@ -161,7 +162,9 @@ def _build_llm():
 
 
 # Matches kimi-k2's text-format tool calls: functions.tool_name:N{"arg": val}
+# Also matches <|tool_call_argument_begin|>{"arg": val} format
 _TEXT_TOOL_RE = _re.compile(r'functions\.(\w+):\d+(\{[^}]*\})', _re.DOTALL)
+_ARG_BLOCK_RE = _re.compile(r'<\|tool_call_argument_begin\|>(\{.*?\})', _re.DOTALL)
 
 
 def _content_to_str(content) -> str:
@@ -172,57 +175,152 @@ def _content_to_str(content) -> str:
     return str(content) if content else ""
 
 
+def _try_parse_json(s: str) -> dict | None:
+    """Try to parse JSON, attempting to fix common truncation issues."""
+    s = s.strip()
+    try:
+        return _json.loads(s)
+    except Exception:
+        pass
+    # Attempt to close truncated JSON: add missing closing brace/quote
+    for suffix in ['"}', '"}}', '}', '}}']:
+        try:
+            return _json.loads(s + suffix)
+        except Exception:
+            pass
+    return None
+
+
 def _extract_text_tool_args(content_str: str, tool_name: str) -> dict | None:
     """Parse args from kimi-k2's text-format tool call when structured args are empty."""
     for m in _TEXT_TOOL_RE.finditer(content_str):
         if m.group(1) == tool_name:
-            try:
-                return _json.loads(m.group(2))
-            except Exception:
-                pass
+            result = _try_parse_json(m.group(2))
+            if result is not None:
+                return result
+    for m in _ARG_BLOCK_RE.finditer(content_str):
+        result = _try_parse_json(m.group(1))
+        if result is not None:
+            return result
     return None
 
 
+def _synthesize_tool_calls(content_str: str) -> list[dict]:
+    """Build structured tool calls from kimi-k2 text-format calls when tool_calls=[].
+
+    kimi-k2 often produces the correct text like:
+        functions.portfolio_buy:1{"ticker": "NVDA", "qty": 10}
+    but the OpenAI-format tool_calls list is empty. We read the text and
+    synthesize the missing calls so the agent actually executes them.
+    """
+    calls = []
+    text_matches = list(_TEXT_TOOL_RE.finditer(content_str))
+    if text_matches:
+        log.info(f"[parser] text-format matches found: {[m.group(0)[:60] for m in text_matches]}")
+    else:
+        log.info("[parser] no text-format tool matches found in content")
+    for m in text_matches:
+        raw_json = m.group(2)
+        args = _try_parse_json(raw_json)
+        if args is not None:
+            calls.append({
+                "name": m.group(1),
+                "args": args,
+                "id": uuid.uuid4().hex[:8],
+                "type": "tool_call",
+            })
+            log.info(f"[parser] synthesized tool call: {m.group(1)}({args})")
+        else:
+            log.warning(f"[parser] failed to parse JSON for {m.group(1)}: {raw_json!r}")
+    return calls
+
+
 class _PatchedToolsOutputParser(ToolsAgentOutputParser):
-    """Parcha dos incompatibilidades de kimi-k2-instruct con LangChain:
+    """Parcha tres incompatibilidades de kimi-k2-instruct con LangChain:
 
     1. tool_call_id=None  → genera un UUID corto.
-    2. args={}  → extrae los argumentos del texto de la respuesta, donde el
-       modelo escribe los tool calls en su propio formato de texto:
-       ``functions.portfolio_buy:1{"ticker": "NVDA", "qty": 10}``
+    2. args={}            → recupera args del texto (functions.tool:N{...}).
+    3. tool_calls=[]      → sintetiza llamadas completas desde el texto cuando
+                            el modelo escribe el call en texto pero no en el
+                            campo estructurado — evita el AgentFinish prematuro.
     """
 
     def parse_result(self, result, *, partial: bool = False):
         if result:
             gen = result[-1]
             msg = getattr(gen, "message", None)
-            if msg is not None and getattr(msg, "tool_calls", None):
+            if msg is not None:
                 content_str = _content_to_str(getattr(msg, "content", ""))
-                fixed = []
-                for tc in msg.tool_calls:
-                    if not isinstance(tc, dict):
+                existing = list(getattr(msg, "tool_calls", None) or [])
+
+                log.info(
+                    f"[parser] structured tool_calls={len(existing)} | "
+                    f"content_len={len(content_str)} | "
+                    f"content_full={content_str!r}"
+                )
+                if existing:
+                    log.info(f"[parser] structured calls: {existing}")
+
+                # Fix 3: no structured calls but text has tool calls → synthesize
+                if not existing:
+                    synth = _synthesize_tool_calls(content_str)
+                    if synth:
+                        log.info(f"[parser] Fix3: injecting {len(synth)} synthesized call(s)")
+                        existing = synth
+                    else:
+                        log.info("[parser] Fix3: no synthesis — will become AgentFinish")
+
+                # Raw additional_kwargs from API response (used in Fix 2b below)
+                raw_ak_tcs = getattr(msg, "additional_kwargs", {}).get("tool_calls", [])
+                if raw_ak_tcs:
+                    log.info(f"[parser] additional_kwargs tool_calls: {raw_ak_tcs}")
+
+                if existing:
+                    fixed = []
+                    for tc in existing:
+                        if not isinstance(tc, dict):
+                            fixed.append(tc)
+                            continue
+                        tc = dict(tc)
+                        # Fix 1: null id
+                        if not tc.get("id"):
+                            tc["id"] = uuid.uuid4().hex[:8]
+                            log.info(f"[parser] Fix1: assigned id to {tc.get('name')}")
+                        # Fix 2: empty args — try text-format first
+                        if not tc.get("args"):
+                            recovered = _extract_text_tool_args(content_str, tc.get("name", ""))
+                            if recovered:
+                                log.info(f"[parser] Fix2: recovered args for {tc['name']}: {recovered}")
+                                tc["args"] = recovered
+                            else:
+                                log.warning(f"[parser] Fix2: could not recover args for {tc.get('name')}")
+                        # Fix 2b: fall back to additional_kwargs raw function.arguments string
+                        if not tc.get("args"):
+                            for raw in raw_ak_tcs:
+                                if not isinstance(raw, dict):
+                                    continue
+                                fn = raw.get("function", {})
+                                raw_str = fn.get("arguments", "")
+                                log.info(f"[parser] Fix2b: checking raw fn={fn.get('name')!r} arguments={raw_str!r}")
+                                if fn.get("name") == tc.get("name") and raw_str not in ("", "{}"):
+                                    r2 = _try_parse_json(raw_str)
+                                    if r2:
+                                        log.info(f"[parser] Fix2b: recovered from additional_kwargs: {r2}")
+                                        tc["args"] = r2
+                                        break
+                            if not tc.get("args"):
+                                log.warning(f"[parser] Fix2b: additional_kwargs also empty for {tc.get('name')}")
                         fixed.append(tc)
-                        continue
-                    tc = dict(tc)
-                    # Fix 1: null id
-                    if not tc.get("id"):
-                        tc["id"] = uuid.uuid4().hex[:8]
-                    # Fix 2: empty args — recover from text-format tool call
-                    if not tc.get("args"):
-                        recovered = _extract_text_tool_args(content_str, tc.get("name", ""))
-                        if recovered:
-                            log.debug(f"recovered args for {tc['name']} from text: {recovered}")
-                            tc["args"] = recovered
-                    fixed.append(tc)
-                try:
-                    patched_msg = msg.model_copy(update={"tool_calls": fixed})
-                    result = list(result)
+                    log.info(f"[parser] final calls dispatched: {[{'name': c.get('name'), 'args': c.get('args')} for c in fixed]}")
                     try:
-                        result[-1] = gen.model_copy(update={"message": patched_msg})
-                    except Exception:
-                        result[-1] = type(gen)(message=patched_msg)
-                except AttributeError:
-                    msg.tool_calls = fixed
+                        patched_msg = msg.model_copy(update={"tool_calls": fixed})
+                        result = list(result)
+                        try:
+                            result[-1] = gen.model_copy(update={"message": patched_msg})
+                        except Exception:
+                            result[-1] = type(gen)(message=patched_msg)
+                    except AttributeError:
+                        msg.tool_calls = fixed
         return super().parse_result(result, partial=partial)
 
 
@@ -261,6 +359,7 @@ def build_agent() -> RunnableWithMessageHistory:
         analyze_news_article,
         search_finance_knowledge,
         portfolio_buy,
+        portfolio_buy_all_cash,
         portfolio_sell,
         portfolio_view,
         portfolio_transactions,

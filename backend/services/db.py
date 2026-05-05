@@ -80,6 +80,7 @@ def init_db() -> None:
                 """
             )
         else:
+            # Migración de portfolio_id (columna, si falta)
             if not _column_exists(cur, "positions", "portfolio_id"):
                 try:
                     cur.execute(
@@ -87,14 +88,42 @@ def init_db() -> None:
                     )
                 except sqlite3.OperationalError:
                     pass
-            # Indice único compuesto (portfolio_id, ticker). Si ya existe lo ignoramos.
-            try:
+
+            # Detectar si la tabla aún tiene "ticker TEXT PRIMARY KEY" (legacy).
+            # En ese caso ticker tiene unicidad global, no por cartera — hay que
+            # recrear la tabla sin ese PK para que portfolio_id+ticker sea el único.
+            cur.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='positions'"
+            )
+            ddl = (cur.fetchone() or [""])[0] or ""
+            has_ticker_pk = "ticker TEXT PRIMARY KEY" in ddl or "ticker text primary key" in ddl.lower()
+            if has_ticker_pk:
                 cur.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_portfolio_ticker "
-                    "ON positions(portfolio_id, ticker)"
+                    """
+                    CREATE TABLE positions_new (
+                        ticker TEXT NOT NULL,
+                        qty REAL NOT NULL,
+                        avg_price REAL NOT NULL,
+                        portfolio_id INTEGER NOT NULL DEFAULT 1,
+                        UNIQUE(portfolio_id, ticker)
+                    )
+                    """
                 )
-            except sqlite3.OperationalError:
-                pass
+                cur.execute(
+                    "INSERT INTO positions_new (ticker, qty, avg_price, portfolio_id) "
+                    "SELECT ticker, qty, avg_price, portfolio_id FROM positions"
+                )
+                cur.execute("DROP TABLE positions")
+                cur.execute("ALTER TABLE positions_new RENAME TO positions")
+            else:
+                # Índice único compuesto (portfolio_id, ticker). Si ya existe lo ignoramos.
+                try:
+                    cur.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_portfolio_ticker "
+                        "ON positions(portfolio_id, ticker)"
+                    )
+                except sqlite3.OperationalError:
+                    pass
 
         # Transactions: igual patrón.
         if not _table_exists(cur, "transactions"):

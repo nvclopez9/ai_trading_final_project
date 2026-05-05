@@ -221,7 +221,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 }
 
 export function ChatPage() {
-  const { activeId } = usePortfolioCtx()
+  const { activeId, portfolios } = usePortfolioCtx()
   const { toast } = useToast()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -304,7 +304,12 @@ export function ChatPage() {
       >
         <div>
           <h1 className="font-semibold text-base" style={{ color: 'var(--text)' }}>Chat IA</h1>
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>Agente de inversiones · Cartera #{activeId}</p>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+            Agente de inversiones ·{' '}
+            <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
+              {portfolios.find(p => p.id === activeId)?.name ?? `Cartera #${activeId}`}
+            </span>
+          </p>
         </div>
         <button
           onClick={handleClear}

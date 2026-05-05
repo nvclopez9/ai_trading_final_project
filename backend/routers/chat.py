@@ -1,7 +1,6 @@
 """Chat API routes with SSE streaming."""
 import asyncio
 import json
-import re
 from typing import AsyncIterator
 
 from fastapi import APIRouter
@@ -27,17 +26,71 @@ class ClearRequest(BaseModel):
     session_id: str = "default"
 
 
+# ---------------------------------------------------------------------------
+# Stateful artifact filter
+# ---------------------------------------------------------------------------
 # kimi-k2-instruct emits its internal tool-calling format as plain text in the
-# stream alongside the structured tool calls. These patterns need to be stripped
-# so the user only sees the natural-language response.
-_ARTIFACT_RE = re.compile(
-    r"functions\.\w+:\d+\{[^}]*\}?"              # functions.tool_name:1{...}
-    r"|\[\{['\"]type['\"][^\]]+\]"                # [{'type': 'text', 'text': '...'}]
-    r"|\d*<\|[^|>]{1,80}\|>"                      # 2<|tool_call_begin|> or <|token|>
-    r"|<\|tool_calls?_section_(?:begin|end)\|>"   # section markers
-    r"|\d+<\|",                                   # dangling N<|
-    re.DOTALL,
+# stream alongside the structured tool calls. These tokens span chunk boundaries
+# so we need a stateful cleaner rather than a simple regex substitution.
+#
+# Format examples:
+#   functions.portfolio_buy:1{"ticker": "NVDA", "qty": 10}
+#   [{'type': 'text', 'text': 'some response text...'}]
+#   2<|tool_call_argument_begin|>{"ticker": "NVDA"}
+#   <|tool_calls_section_end|>
+
+_TRIGGERS: list[tuple[str, str]] = (
+    [("[{'type'", "'}]"), ('[{"type"', '"}]')]          # list-format content blocks
+    + [(f"{d}<|", "|>") for d in range(10)]             # N<|special_token|>
+    + [("<|", "|>"), ("functions.", "}")]                # bare tokens + text tool calls
 )
+_MAX_TRIGGER_LEN = max(len(s) for s, _ in _TRIGGERS)
+
+
+class _StreamCleaner:
+    """Strips kimi-k2 artifact tokens from a streaming text, handling cross-chunk spans."""
+
+    def __init__(self):
+        self._buf = ""
+        self._end: str | None = None   # what we're waiting for to end suppression
+
+    def feed(self, text: str) -> str:
+        self._buf += text
+        out: list[str] = []
+        while True:
+            if self._end:
+                idx = self._buf.find(self._end)
+                if idx >= 0:
+                    self._buf = self._buf[idx + len(self._end):]
+                    self._end = None
+                else:
+                    break  # artifact continues in next chunk
+            else:
+                best_idx = len(self._buf)
+                best_slen = 0
+                best_end = None
+                for start, end in _TRIGGERS:
+                    i = self._buf.find(start)
+                    if 0 <= i < best_idx:
+                        best_idx, best_slen, best_end = i, len(start), end
+
+                if best_end is not None:
+                    out.append(self._buf[:best_idx])
+                    self._buf = self._buf[best_idx + best_slen:]
+                    self._end = best_end
+                else:
+                    # Hold back a small tail — it might be the start of an artifact
+                    safe = max(0, len(self._buf) - (_MAX_TRIGGER_LEN - 1))
+                    out.append(self._buf[:safe])
+                    self._buf = self._buf[safe:]
+                    break
+        return "".join(out)
+
+    def flush(self) -> str:
+        result = self._buf if not self._end else ""
+        self._buf = ""
+        self._end = None
+        return result
 
 
 def _extract_text(content) -> str:
@@ -52,10 +105,9 @@ def _extract_text(content) -> str:
     return str(content) if content else ""
 
 
-def _clean(raw: str) -> str:
-    """Strip kimi-k2 internal tool-call artifacts from a streamed text chunk."""
-    return _ARTIFACT_RE.sub("", raw)
-
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _set_portfolio(portfolio_id: int) -> None:
     try:
@@ -69,13 +121,11 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def _stream_agent(message: str, session_id: str, portfolio_id: int) -> AsyncIterator[str]:
-    """Streams agent response as SSE events.
+# ---------------------------------------------------------------------------
+# Streaming agent
+# ---------------------------------------------------------------------------
 
-    Uses astream_events so tokens arrive progressively — the client sees
-    output while the model is still generating instead of waiting for the
-    full reply.
-    """
+async def _stream_agent(message: str, session_id: str, portfolio_id: int) -> AsyncIterator[str]:
     _set_portfolio(portfolio_id)
 
     try:
@@ -83,8 +133,10 @@ async def _stream_agent(message: str, session_id: str, portfolio_id: int) -> Asy
         agent = get_agent()
 
         yield _sse("thinking", {"message": "Procesando..."})
+        log.info(f"[chat] astream_events → session={session_id!r} portfolio={portfolio_id} msg={message[:80]!r}")
 
-        log.debug(f"astream_events → session={session_id!r} msg={message[:80]!r}")
+        cleaner = _StreamCleaner()
+        iteration = 0
 
         async with asyncio.timeout(AGENT_TIMEOUT):
             async for event in agent.astream_events(
@@ -97,22 +149,47 @@ async def _stream_agent(message: str, session_id: str, portfolio_id: int) -> Asy
                 if kind == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
                     raw = _extract_text(getattr(chunk, "content", "") if chunk else "")
-                    content = _clean(raw)
-                    if content:
-                        yield _sse("token", {"content": content})
+                    clean = cleaner.feed(raw)
+                    if clean:
+                        yield _sse("token", {"content": clean})
+
+                elif kind == "on_chat_model_end":
+                    iteration += 1
+                    out = event["data"].get("output")
+                    tc = getattr(out, "tool_calls", None) or []
+                    text_content = _extract_text(getattr(out, "content", "")) if out else ""
+                    log.info(
+                        f"[chat] llm_end iter={iteration} "
+                        f"tool_calls={len(tc)} "
+                        f"content_snippet={text_content[:100]!r}"
+                    )
+                    if tc:
+                        log.info(f"[chat] llm tool_calls detail: {tc}")
 
                 elif kind == "on_tool_start":
+                    tool_input = event["data"].get("input", {})
+                    log.info(f"[chat] tool_start: {event.get('name')} input={tool_input}")
                     yield _sse("tool_call", {
                         "name": event.get("name", "herramienta"),
                         "status": "calling",
                     })
-                    log.debug(f"tool_start: {event.get('name')}")
 
                 elif kind == "on_tool_end":
+                    tool_output = str(event["data"].get("output", ""))[:120]
+                    log.info(f"[chat] tool_end: {event.get('name')} output={tool_output!r}")
                     yield _sse("tool_call", {
                         "name": event.get("name", "herramienta"),
                         "status": "done",
                     })
+
+                elif kind == "on_chain_end" and event.get("name") == "AgentExecutor":
+                    final_out = event["data"].get("output", {})
+                    log.info(f"[chat] AgentExecutor finished: output_keys={list(final_out.keys()) if isinstance(final_out, dict) else type(final_out).__name__}")
+
+        # Flush any buffered clean text
+        tail = cleaner.flush()
+        if tail:
+            yield _sse("token", {"content": tail})
 
         yield _sse("done", {})
 
@@ -124,10 +201,19 @@ async def _stream_agent(message: str, session_id: str, portfolio_id: int) -> Asy
         yield _sse("done", {})
 
     except Exception as e:
-        log.warning(f"chat stream error: {e}")
-        yield _sse("error", {"message": str(e)})
+        err_str = str(e)
+        log.warning(f"chat stream error: {err_str}")
+        if "429" in err_str or "Too Many Requests" in err_str:
+            msg = "El servidor de IA ha recibido demasiadas peticiones. Espera unos segundos y vuelve a intentarlo."
+        else:
+            msg = err_str
+        yield _sse("error", {"message": msg})
         yield _sse("done", {})
 
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 @router.post("/stream")
 async def chat_stream(body: ChatRequest):

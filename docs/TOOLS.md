@@ -1,6 +1,6 @@
 # Herramientas del Agente de IA
 
-El agente dispone de **18 herramientas** organizadas en 5 categorías. Cada herramienta es una función Python decorada con `@tool` de LangChain — el LLM lee su nombre y descripción para decidir cuándo invocarla, y LangChain ejecuta la función real y devuelve el resultado al LLM como observación.
+El agente dispone de **19 herramientas** organizadas en 5 categorías. Cada herramienta es una función Python decorada con `@tool` de LangChain — el LLM lee su nombre y descripción para decidir cuándo invocarla, y LangChain ejecuta la función real y devuelve el resultado al LLM como observación.
 
 Todas las herramientas devuelven `str` (no dict/JSON) para maximizar la fiabilidad del tool-calling con modelos de tamaño medio.
 
@@ -172,7 +172,7 @@ Todas estas herramientas operan sobre la **cartera activa** del usuario (la sele
 ---
 
 ### `portfolio_buy`
-**Cuándo la usa el agente:** cuando el usuario ordena comprar acciones de un ticker concreto, o cuando ejecuta una propuesta de `analyze_buy_opportunities` aprobada.
+**Cuándo la usa el agente:** cuando el usuario ordena comprar una cantidad concreta de acciones, o cuando ejecuta una propuesta de `analyze_buy_opportunities` aprobada.
 
 **Ejemplo de pregunta:** *"Compra 10 acciones de AAPL"*, *"Adquiere 5 NVDA"*
 
@@ -182,9 +182,41 @@ Todas estas herramientas operan sobre la **cartera activa** del usuario (la sele
 | `ticker` | str | Símbolo a comprar |
 | `qty` | float | Cantidad de acciones |
 
-**Comportamiento:** el agente siempre avisa antes de ejecutar (*"Voy a comprar X acciones de Y"*). La compra se hace al precio actual de Yahoo Finance. Valida que haya suficiente cash.
+**Comportamiento:** compra al precio actual de Yahoo Finance. Valida que haya suficiente cash. Detecta duplicados recientes (misma operación en <30s) y avisa antes de reintentar.
 
-**Qué devuelve:** confirmación con precio pagado, coste total, efectivo restante.
+**Qué devuelve (formato estructurado):**
+```
+✅ Compra ejecutada (cartera #N · Nombre)
+  Ticker:          NVDA (10 acciones)
+  Precio mercado:  $198.48 / acción
+  Total pagado:    $1,984.80
+  Posición total:  10 acc. @ avg $198.48
+  Efectivo rest.:  $109.51
+```
+
+---
+
+### `portfolio_buy_all_cash`
+**Cuándo la usa el agente:** cuando el usuario dice *"compra con todo el capital"*, *"invierte todo el efectivo en X"*, *"usa el resto del dinero"*. Evita el problema de tener que calcular la cantidad manualmente.
+
+**Ejemplo de pregunta:** *"Compra NVDA con todo el capital disponible"*, *"Invierte todo en Apple"*
+
+**Parámetros:**
+| Parámetro | Tipo | Descripción |
+|---|---|---|
+| `ticker` | str | Símbolo a comprar |
+
+**Comportamiento:** internamente obtiene el efectivo disponible, el precio actual de Yahoo Finance y calcula `qty = floor(cash / precio)`. Ejecuta la compra en un solo paso.
+
+**Qué devuelve (formato estructurado):**
+```
+✅ Compra con todo el capital (cartera #N · Nombre)
+  Ticker:          NVDA (10 acciones)
+  Precio mercado:  $198.48 / acción
+  Total invertido: $1,984.80
+  Posición total:  10 acc. @ avg $198.48
+  Efectivo rest.:  $109.51
+```
 
 ---
 
@@ -337,7 +369,8 @@ Agente llama portfolio_view() para mostrar estado final
 
 1. **No inventa datos** — cualquier precio, ratio o cifra financiera DEBE venir de una tool. Prohibido fabricar números.
 2. **Tools de solo lectura** se invocan directamente sin pedir permiso.
-3. **Tools que mutan estado** (buy, sell, set_risk, set_markets) avisan antes de ejecutar.
-4. **Productos apalancados y cripto-ETPs** incluyen una advertencia de riesgo antes de la primera compra.
-5. **RAG** se cita siempre con el nombre del PDF fuente.
-6. **Sin confirmación doble** en el flujo Analizar→Ejecutar: una vez que el usuario dice "sí", el agente ejecuta sin volver a preguntar.
+3. **Tools que mutan estado** (buy, sell, set_risk, set_markets) avisan antes de ejecutar pero lo hacen en el mismo turno — no esperan a un turno posterior.
+4. **Compra con todo el capital** → usa `portfolio_buy_all_cash(ticker)`, no `portfolio_buy`. Calcula qty automáticamente.
+5. **Productos apalancados y cripto-ETPs** incluyen una advertencia de riesgo antes de la primera compra.
+6. **RAG** se cita siempre con el nombre del PDF fuente.
+7. **Sin confirmación doble** en el flujo Analizar→Ejecutar: una vez que el usuario dice "sí", el agente ejecuta sin volver a preguntar.
