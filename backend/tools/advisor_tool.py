@@ -31,6 +31,58 @@ from backend.tools.portfolio_tools import get_active_portfolio_id
 from backend.tools.universes import get_universe
 
 
+# ---------------------------------------------------------------------------
+# RAG helper: consulta la base de conocimiento sin pasar por el @tool wrapper
+# ---------------------------------------------------------------------------
+
+def _rag_query_for(horizon: str, asset_class: str) -> str:
+    """Genera la query RAG más relevante para el horizonte y clase de activo."""
+    ac = asset_class.lower()
+    h = horizon.lower()
+    if ac == "etf":
+        return ("fondos indexados ETF inversión pasiva largo plazo diversificación"
+                if h == "long" else
+                "ETFs sectoriales rotación sectorial análisis técnico tendencia")
+    if ac == "commodity":
+        return "materias primas oro plata petróleo cobertura inflación diversificación"
+    if ac == "crypto":
+        return "criptomonedas Bitcoin Ethereum riesgo volatilidad activos digitales"
+    if ac == "leveraged":
+        return "ETFs apalancados decay volatilidad trading corto plazo riesgo"
+    # stock / all
+    if h == "long":
+        return "análisis fundamental value investing largo plazo selección acciones calidad"
+    if h == "medium":
+        return "inversión mediano plazo crecimiento dividendos análisis sectorial"
+    return "análisis técnico momentum trading acciones corto plazo tendencia"
+
+
+def _rag_context(query: str, k: int = 3) -> str:
+    """Consulta el vectorstore RAG y devuelve fragmentos relevantes como texto.
+
+    Retorna cadena vacía si la base de conocimiento no está disponible, de modo
+    que el advisor funcione igualmente aunque Ollama / Chroma no estén activos.
+    """
+    try:
+        from backend.tools.rag_tool import _get_vectorstore
+        vs = _get_vectorstore()
+        if vs is None:
+            return ""
+        docs = vs.similarity_search(query, k=k)
+        if not docs:
+            return ""
+        parts = []
+        for d in docs:
+            source = d.metadata.get("source", "?")
+            page = d.metadata.get("page")
+            ref = source + (f" pág.{page + 1}" if isinstance(page, int) else "")
+            text = d.page_content.strip().replace("\n", " ")[:350]
+            parts.append(f"• [{ref}] {text}")
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
 # Mapeo perfil de riesgo -> número de picks y peso de momentum vs estabilidad.
 # - conservador: pocas posiciones, premia estabilidad (cambio diario moderado, no chicharros).
 # - moderado: equilibrio.
@@ -342,8 +394,21 @@ def analyze_buy_opportunities(
         for c in proposal:
             lines.append(f"- COMPRAR {c['qty']} {c['ticker']}  (≈ ${c['cost']:,.2f} a ${c['price']:.2f})")
         lines.append("")
+
+        # Contexto doctrinal: enriquecemos la propuesta con conocimiento del RAG
+        # para que el agente pueda justificar la estrategia con fuentes reales.
+        rag_query = _rag_query_for(horizon, ac)
+        rag_ctx = _rag_context(rag_query, k=3)
+        if rag_ctx:
+            lines.append("─" * 50)
+            lines.append(f"📚 Contexto doctrinal (base de conocimiento — query: '{rag_query}'):")
+            lines.append(rag_ctx)
+            lines.append("─" * 50)
+            lines.append("")
+
         lines.append(
-            "Esto es una recomendación cuantitativa simple basada en momentum + perfil de riesgo. "
+            "Recomendación cuantitativa basada en momentum + perfil de riesgo, "
+            "complementada con doctrina de la base de conocimiento. "
             "No es asesoramiento financiero profesional."
         )
         return "\n".join(lines)
@@ -504,8 +569,26 @@ def analyze_sell_candidates(
         for pos, qty_sell, price, proceeds in proposal:
             lines.append(f"- VENDER {qty_sell} {pos['ticker']}  (≈ ${proceeds:,.2f} a ${price:.2f})")
         lines.append("")
+
+        # Contexto doctrinal según el criterio de venta elegido.
+        sell_rag_queries = {
+            "losers": "stop loss cortar pérdidas gestión de riesgo cartera",
+            "gainers": "tomar beneficios profit taking gestión posiciones ganadoras",
+            "underperformers": "rotación de cartera vender rezagados mejorar rentabilidad",
+            "reduce_exposure": "reducir exposición diversificación gestión de riesgo",
+        }
+        rag_query = sell_rag_queries.get(chosen_target, "gestión de cartera venta posiciones riesgo")
+        rag_ctx = _rag_context(rag_query, k=2)
+        if rag_ctx:
+            lines.append("─" * 50)
+            lines.append(f"📚 Contexto doctrinal (base de conocimiento — query: '{rag_query}'):")
+            lines.append(rag_ctx)
+            lines.append("─" * 50)
+            lines.append("")
+
         lines.append(
-            "Recomendación cuantitativa basada en P&L y perfil de riesgo. "
+            "Recomendación cuantitativa basada en P&L y perfil de riesgo, "
+            "complementada con doctrina de la base de conocimiento. "
             "No es asesoramiento financiero profesional."
         )
         return "\n".join(lines)

@@ -53,10 +53,21 @@ def _active_name_suffix() -> str:
 
 @tool
 def portfolio_buy(ticker: str, qty: float) -> str:
-    """Ejecuta una COMPRA simulada de 'qty' acciones del 'ticker' al precio de mercado actual.
+    """Ejecuta una COMPRA simulada de acciones al precio de mercado actual.
     Opera sobre la cartera ACTIVA del usuario.
     Usa esta tool cuando el usuario pida comprar, adquirir o añadir acciones.
-    Antes de llamarla, avisa brevemente al usuario de lo que vas a hacer."""
+    Antes de llamarla, avisa brevemente al usuario de lo que vas a hacer.
+
+    FORMATO DE ARGUMENTOS (crítico — no alterar):
+      ticker — símbolo en MAYÚSCULAS exactas (ej: "AAPL", "MSFT", "NVDA").
+               NO uses minúsculas, nombres de empresa ni sufijos de bolsa.
+      qty    — entero POSITIVO EXACTO tal como aparece en la PROPUESTA EJECUTABLE
+               (ej: 8, 12, 25). PROHIBIDO recalcular, multiplicar ni modificar
+               la cantidad. Si la propuesta dice 8 acciones, llamas con qty=8.
+
+    Control de capital automático: si la qty solicitada supera el efectivo
+    disponible, la tool ajusta al máximo comprable e informa del cambio.
+    """
     global _LAST_DUPLICATE_WARNING
     log.debug(f"portfolio_buy called: {ticker} qty={qty}")
     try:
@@ -64,8 +75,34 @@ def portfolio_buy(ticker: str, qty: float) -> str:
         symbol = str(ticker).strip().upper()
         qty_f = float(qty)
 
-        # Detección de duplicado reciente (<30s, mismo ticker/qty, precio ±1%).
+        # ── Control de capital: verificar efectivo antes de ejecutar ─────────
+        cash = portfolios.cash_available(pid)
         price_now = portfolio._current_price(symbol)
+        clamp_note = ""
+        if price_now is not None and price_now > 0:
+            max_qty = _math.floor(cash / price_now)
+            if qty_f > max_qty:
+                if max_qty <= 0:
+                    return (
+                        f"{ERR_ICON} Efectivo insuficiente{_active_name_suffix()}: "
+                        f"dispones de ${cash:,.2f} pero {symbol} cotiza a ${price_now:.2f} "
+                        f"(necesitarías ${qty_f * price_now:,.2f}). "
+                        f"No tienes saldo para comprar ni 1 acción. "
+                        f"Usa portfolio_buy_all_cash para invertir todo el efectivo disponible."
+                    )
+                # Auto-ajuste al máximo comprable con nota visible
+                clamp_note = (
+                    f"⚠️ Cantidad ajustada: solicitadas {int(qty_f)} acc., "
+                    f"pero con ${cash:,.2f} y {symbol} a ${price_now:.2f} "
+                    f"el máximo comprable es {max_qty} acc. Comprando {max_qty}.\n"
+                )
+                log.warning(
+                    f"portfolio_buy: qty clamped {qty_f} → {max_qty} "
+                    f"(cash={cash:.2f}, price={price_now:.2f})"
+                )
+                qty_f = float(max_qty)
+
+        # ── Detección de duplicado reciente (<30 s, mismo ticker/qty, precio ±1 %) ──
         if price_now is not None:
             dup = portfolio.recent_duplicate_buy(symbol, qty_f, price_now, portfolio_id=pid)
             warned_key = (pid, symbol, qty_f, round(price_now, 2))
@@ -78,13 +115,14 @@ def portfolio_buy(ticker: str, qty: float) -> str:
                 )
 
         with timed(log, f"portfolio.buy({symbol}, {qty_f})"):
-            r = portfolio.buy(ticker, qty_f, portfolio_id=pid)
+            r = portfolio.buy(symbol, qty_f, portfolio_id=pid)
         _LAST_DUPLICATE_WARNING = None
         total = r['qty'] * r['price']
         cash_left = portfolios.cash_available(pid)
         log.debug(f"result: bought {r['qty']:g} {r['ticker']} @ ${r['price']:.2f}")
         suffix = _active_name_suffix()
         return (
+            f"{clamp_note}"
             f"{OK_ICON} Compra ejecutada{suffix}\n"
             f"  Ticker:          {r['ticker']} ({r['qty']:g} acciones)\n"
             f"  Precio mercado:  ${r['price']:.2f} / acción\n"
@@ -102,10 +140,17 @@ def portfolio_buy(ticker: str, qty: float) -> str:
 
 @tool
 def portfolio_sell(ticker: str, qty: float) -> str:
-    """Ejecuta una VENTA simulada de 'qty' acciones del 'ticker' al precio de mercado actual.
+    """Ejecuta una VENTA simulada de acciones al precio de mercado actual.
     Opera sobre la cartera ACTIVA del usuario.
     Valida posición existente y cantidad suficiente.
     Antes de llamarla, avisa brevemente al usuario de lo que vas a hacer.
+
+    FORMATO DE ARGUMENTOS (crítico — no alterar):
+      ticker — símbolo en MAYÚSCULAS exactas (ej: "AAPL", "MSFT", "NVDA").
+               NO uses minúsculas, nombres de empresa ni sufijos de bolsa.
+      qty    — entero POSITIVO EXACTO tal como aparece en la PROPUESTA EJECUTABLE
+               (ej: 5, 10, 20). PROHIBIDO recalcular, multiplicar ni modificar
+               la cantidad. Debe ser ≤ al número de acciones que posees.
 
     Esta tool valida internamente si la posición existe; llámala SIEMPRE que el
     usuario indique intención de vender, aun cuando creas que no hay posición. Si
@@ -113,8 +158,33 @@ def portfolio_sell(ticker: str, qty: float) -> str:
     log.debug(f"portfolio_sell called: {ticker} qty={qty}")
     try:
         pid = get_active_portfolio_id()
-        with timed(log, f"portfolio.sell({ticker}, {qty})"):
-            r = portfolio.sell(ticker, float(qty), portfolio_id=pid)
+        symbol = str(ticker).strip().upper()
+        qty_f = float(qty)
+
+        # ── Control de posición: verificar existencia y qty antes de ejecutar ─
+        positions = portfolio.get_positions(portfolio_id=pid)
+        pos_map = {p['ticker']: p['qty'] for p in positions}
+        available_qty = pos_map.get(symbol, 0.0)
+
+        if available_qty == 0:
+            owned_str = (
+                ", ".join(f"{t} ({q:g} acc.)" for t, q in sorted(pos_map.items()))
+                if pos_map else "ninguna"
+            )
+            return (
+                f"{ERR_ICON} No tienes posición en {symbol}{_active_name_suffix()}. "
+                f"Posiciones actuales: {owned_str}."
+            )
+
+        if qty_f > available_qty:
+            return (
+                f"{ERR_ICON} Solo tienes {available_qty:g} acciones de {symbol}"
+                f"{_active_name_suffix()}, no puedes vender {qty_f:g}. "
+                f"Usa qty={int(available_qty)} para cerrar toda la posición."
+            )
+
+        with timed(log, f"portfolio.sell({symbol}, {qty_f})"):
+            r = portfolio.sell(symbol, qty_f, portfolio_id=pid)
         log.debug(f"result: sold {r['qty']:g} {r['ticker']} @ ${r['price']:.2f} remaining={r['new_qty']:g}")
         if r["new_qty"] == 0:
             return (

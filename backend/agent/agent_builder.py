@@ -1,47 +1,79 @@
 """Construye el agente conversacional de inversiones (pieza central del proyecto).
 
-Implementación compatible con Python 3.14: usa exclusivamente langchain_core
-y langchain_openai, evitando langchain.agents que es incompatible con
-Python 3.14 por un bug de evaluación de anotaciones de tipo en Pydantic.
+Este módulo orquesta todos los componentes de LangChain que forman el
+agente usando exclusivamente NVIDIA NIM como proveedor LLM:
 
-El bucle del agente está implementado manualmente (SimpleAgentExecutor) en lugar
-de usar AgentExecutor de langchain.agents, que hereda de Chain (Pydantic) y falla
-con Python 3.14 al evaluar Optional[dict[str, Any]] via annotationlib.
-
-Componentes:
   ChatOpenAI → NVIDIA NIM
       |
       v
-  _build_tool_calling_agent  <-- prompt con SYSTEM_PROMPT + historial + input
+  create_tool_calling_agent  <-- prompt con SYSTEM_PROMPT + historial + input
       |
       v
-  SimpleAgentExecutor         <-- bucle: LLM -> tool -> observación -> LLM -> final
+  AgentExecutor              <-- bucle: LLM -> tool -> observación -> LLM -> final
       |
       v
-  RunnableWithMessageHistory  <-- aísla la memoria de chat por session_id
+  RunnableWithMessageHistory <-- aísla la memoria de chat por session_id
+
+Puntos didácticos clave para la exposición oral:
+
+1. ¿Qué es un AgentExecutor? Es el bucle que hace funcionar el agente: le
+   pasa el mensaje al LLM; si el LLM decide llamar a una tool, la ejecuta,
+   mete la observación en el scratchpad y vuelve a preguntar al LLM; así
+   hasta que el LLM responde sin pedir más tools (o hasta ``max_iterations``).
+
+2. ¿Qué son las "tools"? Funciones Python decoradas con ``@tool`` cuyo
+   docstring el LLM lee como descripción. En cada iteración el LLM decide
+   invocar 0, 1 o varias, pasando argumentos JSON estructurados.
+
+3. ¿Por qué ``create_tool_calling_agent`` en vez de ReAct clásico?
+   ReAct parsea texto tipo "Action: ..., Action Input: ..." del LLM, lo que
+   es frágil con modelos pequeños que se saltan el formato. Tool-calling
+   nativo devuelve la llamada a tool como un objeto estructurado — mucho
+   más fiable y menos propenso a loops.
+
+4. ¿Por qué ``RunnableWithMessageHistory`` + ``session_id``? El
+   ``AgentExecutor`` es stateless. Para que el chat recuerde el contexto de
+   los mensajes previos lo envolvemos con RunnableWithMessageHistory, que
+   inyecta el historial en el prompt (placeholder ``chat_history``). La
+   memoria se indexa por ``session_id`` para aislar sesiones distintas
+   entre sí — si dos usuarios abren el mismo servidor, sus chats no se mezclan.
+
+5. ¿Cómo decide qué tool usar? El LLM lee el SYSTEM_PROMPT (que contiene
+   un mapa intención->tool) y los docstrings de las tools. Con ese contexto
+   y el input del usuario, genera una llamada a tool estructurada. No hay
+   árbol de decisión hardcodeado: es el modelo quien elige.
 """
+# Librería estándar + dotenv para leer NVIDIA_MODEL y NVIDIA_API_KEY del .env.
 import os
 import uuid
-import json as _json
-import re as _re
-import asyncio
-from typing import Any, AsyncIterator
-
 from dotenv import load_dotenv
 
 from backend.utils.logger import get_logger
 
 log = get_logger("agent.builder")
 
+# ChatOpenAI: cliente compatible con la API de OpenAI. Lo reutilizamos para
+# NVIDIA NIM porque su endpoint sigue el mismo contrato (chat/completions con
+# tool-calling). Solo hay que cambiar base_url y la api_key.
 from langchain_openai import ChatOpenAI
-from langchain_core.runnables import RunnablePassthrough, Runnable
+# AgentExecutor y create_tool_calling_agent: montan el bucle del agente.
+import json as _json
+import re as _re
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents.output_parsers.tools import ToolsAgentOutputParser
+from langchain.agents.format_scratchpad.tools import format_to_tool_messages
+from langchain_core.runnables import RunnablePassthrough
+# Prompt templates: ChatPromptTemplate compone system + chat_history + human
+# + agent_scratchpad (variables que el AgentExecutor rellena en cada iteración).
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+# Historia de mensajes: interfaz + implementación in-memory para los chats.
 from langchain_core.chat_history import BaseChatMessageHistory, InMemoryChatMessageHistory
+# Wrapper que añade memoria al runnable vía callback get_session_history.
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.agents import AgentActionMessageLog, AgentFinish
-from langchain_core.messages import ToolMessage, AIMessage, BaseMessage
 
+# Prompt de sistema en español con reglas y mapa intención->tool.
 from backend.agent.prompts import SYSTEM_PROMPT
+# Las tools del agente, organizadas en 3 módulos (mercado, RAG, cartera).
 from backend.tools.market_tools import (
     get_ticker_status,
     get_ticker_history,
@@ -72,20 +104,44 @@ from backend.tools.analysis_tools import (
 
 load_dotenv()
 
+# Store en memoria de historiales de chat indexado por session_id.
+# Es un dict de nivel módulo: persiste mientras el proceso Python esté vivo.
+# Aceptable para el MVP; una mejora futura sería persistirlo en Redis/SQLite
+# para que el usuario reabra la app y siga su conversación.
 _SESSION_STORE: dict[str, BaseChatMessageHistory] = {}
 
 
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    """Callback que RunnableWithMessageHistory llama para obtener el historial.
+
+    Si es la primera vez que vemos este session_id, creamos una historia
+    vacía ``InMemoryChatMessageHistory`` y la guardamos en el store. En
+    llamadas sucesivas devolvemos la misma instancia para que el estado
+    (mensajes previos) se mantenga dentro de la sesión.
+    """
     if session_id not in _SESSION_STORE:
         _SESSION_STORE[session_id] = InMemoryChatMessageHistory()
     return _SESSION_STORE[session_id]
 
 
 def get_active_llm_info() -> tuple[str, str]:
+    """Devuelve (provider, model) para el LLM activo (siempre NVIDIA NIM).
+
+    Útil para mostrar en la UI qué LLM está atendiendo al agente.
+    """
     return ("nvidia", os.getenv("NVIDIA_MODEL", "minimaxai/minimax-m2.7"))
 
 
 def _build_nvidia_llm() -> ChatOpenAI:
+    """Construye el cliente de NVIDIA NIM (vía API compatible OpenAI).
+
+    streaming=True: habilita SSE token-a-token para que la UI muestre texto
+    fluyendo en lugar de bloquearse hasta que llegue la respuesta completa.
+    request_timeout + max_retries: evitan bloqueos indefinidos y reintentan
+    en fallos transitorios de red.
+    max_tokens=1024: apropiado para un agente tool-calling (no prosa larga);
+    reduce el tiempo de inferencia por iteración vs los 2048 anteriores.
+    """
     model = os.getenv("NVIDIA_MODEL", "minimaxai/minimax-m2.7")
     api_key = os.getenv("NVIDIA_API_KEY", "").strip()
     return ChatOpenAI(
@@ -95,19 +151,17 @@ def _build_nvidia_llm() -> ChatOpenAI:
         temperature=0.1,
         max_tokens=2048,
         streaming=True,
-        request_timeout=120.0,
         max_retries=2,
     )
 
 
 def _build_llm():
+    """Construye el cliente LLM usando NVIDIA NIM."""
     return _build_nvidia_llm()
 
 
-# ---------------------------------------------------------------------------
-# Text-format tool call parsing (kimi-k2 quirk)
-# ---------------------------------------------------------------------------
-
+# Matches kimi-k2's text-format tool calls: functions.tool_name:N{"arg": val}
+# Also matches <|tool_call_argument_begin|>{"arg": val} format
 _TEXT_TOOL_RE = _re.compile(r'functions\.(\w+):\d+(\{[^}]*\})', _re.DOTALL)
 _ARG_BLOCK_RE = _re.compile(r'<\|tool_call_argument_begin\|>(\{.*?\})', _re.DOTALL)
 
@@ -121,11 +175,13 @@ def _content_to_str(content) -> str:
 
 
 def _try_parse_json(s: str) -> dict | None:
+    """Try to parse JSON, attempting to fix common truncation issues."""
     s = s.strip()
     try:
         return _json.loads(s)
     except Exception:
         pass
+    # Attempt to close truncated JSON: add missing closing brace/quote
     for suffix in ['"}', '"}}', '}', '}}']:
         try:
             return _json.loads(s + suffix)
@@ -135,6 +191,7 @@ def _try_parse_json(s: str) -> dict | None:
 
 
 def _extract_text_tool_args(content_str: str, tool_name: str) -> dict | None:
+    """Parse args from kimi-k2's text-format tool call when structured args are empty."""
     for m in _TEXT_TOOL_RE.finditer(content_str):
         if m.group(1) == tool_name:
             result = _try_parse_json(m.group(2))
@@ -148,6 +205,13 @@ def _extract_text_tool_args(content_str: str, tool_name: str) -> dict | None:
 
 
 def _synthesize_tool_calls(content_str: str) -> list[dict]:
+    """Build structured tool calls from kimi-k2 text-format calls when tool_calls=[].
+
+    kimi-k2 often produces the correct text like:
+        functions.portfolio_buy:1{"ticker": "NVDA", "qty": 10}
+    but the OpenAI-format tool_calls list is empty. We read the text and
+    synthesize the missing calls so the agent actually executes them.
+    """
     calls = []
     text_matches = list(_TEXT_TOOL_RE.finditer(content_str))
     if text_matches:
@@ -170,338 +234,121 @@ def _synthesize_tool_calls(content_str: str) -> list[dict]:
     return calls
 
 
-# ---------------------------------------------------------------------------
-# Output parsing: converts AIMessage → AgentActionMessageLog | AgentFinish
-# ---------------------------------------------------------------------------
+class _PatchedToolsOutputParser(ToolsAgentOutputParser):
+    """Parcha tres incompatibilidades de kimi-k2-instruct con LangChain:
 
-def _parse_llm_output(message: AIMessage, content_str: str) -> AgentFinish | list[AgentActionMessageLog]:
-    """Parses LLM output, handling kimi-k2 quirks."""
-    existing = list(getattr(message, "tool_calls", None) or [])
+    1. tool_call_id=None  → genera un UUID corto.
+    2. args={}            → recupera args del texto (functions.tool:N{...}).
+    3. tool_calls=[]      → sintetiza llamadas completas desde el texto cuando
+                            el modelo escribe el call en texto pero no en el
+                            campo estructurado — evita el AgentFinish prematuro.
+    """
 
-    log.info(
-        f"[parser] structured tool_calls={len(existing)} | "
-        f"content_len={len(content_str)} | "
-        f"content_full={content_str!r}"
-    )
-    if existing:
-        log.info(f"[parser] structured calls: {existing}")
+    def parse_result(self, result, *, partial: bool = False):
+        if result:
+            gen = result[-1]
+            msg = getattr(gen, "message", None)
+            if msg is not None:
+                content_str = _content_to_str(getattr(msg, "content", ""))
+                existing = list(getattr(msg, "tool_calls", None) or [])
 
-    # Fix 3: synthesize tool calls from text when tool_calls=[]
-    if not existing:
-        synth = _synthesize_tool_calls(content_str)
-        if synth:
-            log.info(f"[parser] Fix3: injecting {len(synth)} synthesized call(s)")
-            existing = synth
-        else:
-            log.info("[parser] Fix3: no synthesis — AgentFinish")
-
-    raw_ak_tcs = getattr(message, "additional_kwargs", {}).get("tool_calls", [])
-    if raw_ak_tcs:
-        log.info(f"[parser] additional_kwargs tool_calls: {raw_ak_tcs}")
-
-    if not existing:
-        output_text = content_str or ""
-        return AgentFinish(return_values={"output": output_text}, log=output_text)
-
-    fixed = []
-    for tc in existing:
-        if not isinstance(tc, dict):
-            fixed.append(tc)
-            continue
-        tc = dict(tc)
-        # Fix 1: null id
-        if not tc.get("id"):
-            tc["id"] = uuid.uuid4().hex[:8]
-            log.info(f"[parser] Fix1: assigned id to {tc.get('name')}")
-        # Fix 2: empty args — try text-format first
-        if not tc.get("args"):
-            recovered = _extract_text_tool_args(content_str, tc.get("name", ""))
-            if recovered:
-                log.info(f"[parser] Fix2: recovered args for {tc['name']}: {recovered}")
-                tc["args"] = recovered
-            else:
-                log.warning(f"[parser] Fix2: could not recover args for {tc.get('name')}")
-        # Fix 2b: fall back to additional_kwargs raw function.arguments
-        if not tc.get("args"):
-            for raw in raw_ak_tcs:
-                if not isinstance(raw, dict):
-                    continue
-                fn = raw.get("function", {})
-                if not isinstance(fn, dict):
-                    continue
-                raw_str = fn.get("arguments", "")
-                log.info(f"[parser] Fix2b: checking raw fn={fn.get('name')!r} arguments={raw_str!r}")
-                if fn.get("name") == tc.get("name") and raw_str not in ("", "{}"):
-                    r2 = _try_parse_json(raw_str)
-                    if r2:
-                        log.info(f"[parser] Fix2b: recovered from additional_kwargs: {r2}")
-                        tc["args"] = r2
-                        break
-            if not tc.get("args"):
-                log.warning(f"[parser] Fix2b: additional_kwargs also empty for {tc.get('name')}")
-        fixed.append(tc)
-
-    log.info(f"[parser] final calls dispatched: {[{'name': c.get('name'), 'args': c.get('args')} for c in fixed]}")
-
-    actions = []
-    for tc in fixed:
-        name = tc.get("name", "")
-        args = tc.get("args") or {}
-        tc_id = tc.get("id") or uuid.uuid4().hex[:8]
-        log_str = f"\nInvoking: `{name}` with `{args}`\n"
-        actions.append(AgentActionMessageLog(
-            tool=name,
-            tool_input=args,
-            log=log_str,
-            message_log=[message],
-            tool_call_id=tc_id,
-        ))
-    return actions
-
-
-def _format_scratchpad(intermediate_steps: list[tuple]) -> list[BaseMessage]:
-    """Convert (AgentActionMessageLog, observation) pairs to messages."""
-    messages: list[BaseMessage] = []
-    for action, observation in intermediate_steps:
-        if isinstance(action, AgentActionMessageLog):
-            messages.extend(action.message_log)
-            messages.append(ToolMessage(
-                content=str(observation),
-                tool_call_id=action.tool_call_id,
-            ))
-        else:
-            messages.append(AIMessage(content=action.log))
-            messages.append(ToolMessage(
-                content=str(observation),
-                tool_call_id=getattr(action, "tool_call_id", ""),
-            ))
-    return messages
-
-
-# ---------------------------------------------------------------------------
-# Simple async agent executor (replaces langchain.agents.AgentExecutor)
-# ---------------------------------------------------------------------------
-
-class SimpleAgentExecutor(Runnable):
-    """Minimal async agent executor that avoids langchain.chains.Chain (Python 3.14 compat)."""
-
-    def __init__(self, agent_chain, tools: list, max_iterations: int = 20):
-        self._agent = agent_chain
-        self._tools = {t.name: t for t in tools}
-        self._max_iterations = max_iterations
-
-    def invoke(self, inputs: dict, config=None) -> dict:
-        return asyncio.get_event_loop().run_until_complete(self.ainvoke(inputs, config))
-
-    async def ainvoke(self, inputs: dict, config=None) -> dict:
-        intermediate_steps: list[tuple] = []
-        agent_input = dict(inputs)
-
-        for i in range(self._max_iterations):
-            agent_input["intermediate_steps"] = intermediate_steps
-            try:
-                result = await self._agent.ainvoke(agent_input, config=config)
-            except Exception as e:
-                log.warning(f"[executor] agent invoke error on iter {i}: {e}")
-                return {"output": f"Error en el agente: {e}"}
-
-            if isinstance(result, AgentFinish):
-                return result.return_values
-            if isinstance(result, list):
-                for action in result:
-                    tool_fn = self._tools.get(action.tool)
-                    if tool_fn is None:
-                        observation = f"Tool '{action.tool}' no encontrada."
-                        log.warning(f"[executor] tool not found: {action.tool}")
-                    else:
-                        try:
-                            log.info(f"[executor] calling tool {action.tool}({action.tool_input})")
-                            if asyncio.iscoroutinefunction(tool_fn.func if hasattr(tool_fn, 'func') else tool_fn):
-                                observation = await tool_fn.ainvoke(action.tool_input)
-                            else:
-                                observation = await asyncio.get_event_loop().run_in_executor(
-                                    None, lambda: tool_fn.invoke(action.tool_input)
-                                )
-                            log.info(f"[executor] tool result: {str(observation)[:120]!r}")
-                        except Exception as e:
-                            observation = f"Error ejecutando {action.tool}: {e}"
-                            log.warning(f"[executor] tool error: {e}")
-                    intermediate_steps.append((action, observation))
-            else:
-                log.warning(f"[executor] unexpected result type: {type(result)}")
-                break
-
-        return {"output": "El agente alcanzó el límite de iteraciones sin respuesta final."}
-
-    async def astream_events(self, inputs: dict, config=None, version: str = "v2"):
-        """Yield events compatible with langchain_core astream_events format."""
-        intermediate_steps: list[tuple] = []
-        agent_input = dict(inputs)
-
-        yield {"event": "on_chain_start", "name": "AgentExecutor", "data": {"input": inputs}}
-
-        for i in range(self._max_iterations):
-            agent_input["intermediate_steps"] = intermediate_steps
-
-            # Stream the LLM response
-            accumulated_chunks = []
-            accumulated_content = ""
-            accumulated_message = None
-
-            try:
-                async for chunk in self._agent.astream(agent_input, config=config):
-                    # chunk is AIMessageChunk from the LLM
-                    if hasattr(chunk, "content"):
-                        chunk_text = _content_to_str(getattr(chunk, "content", ""))
-                        yield {"event": "on_chat_model_stream", "data": {"chunk": chunk}}
-                        accumulated_content += chunk_text
-                        accumulated_chunks.append(chunk)
-                    elif isinstance(chunk, (AgentFinish, list)):
-                        # Direct output (no streaming at this step)
-                        accumulated_message = chunk
-                        break
-            except Exception as e:
-                log.warning(f"[executor] astream error on iter {i}: {e}")
-                yield {"event": "on_chain_end", "name": "AgentExecutor", "data": {"output": {"output": str(e)}}}
-                return
-
-            # If we got direct output (no streaming), process it
-            if accumulated_message is not None:
-                if isinstance(accumulated_message, AgentFinish):
-                    output = accumulated_message.return_values
-                    yield {"event": "on_chain_end", "name": "AgentExecutor", "data": {"output": output}}
-                    return
-                # list of actions — handled below after streaming
-                actions = accumulated_message
-            else:
-                # Reconstruct the full message from chunks and parse
-                if not accumulated_chunks:
-                    break
-                # Build AIMessage from accumulated content
-                last_chunk = accumulated_chunks[-1]
-                if hasattr(last_chunk, "tool_calls"):
-                    tool_calls = getattr(last_chunk, "tool_calls", []) or []
-                else:
-                    tool_calls = []
-                # Also check additional_kwargs
-                ak = {}
-                for c in accumulated_chunks:
-                    for k, v in getattr(c, "additional_kwargs", {}).items():
-                        if isinstance(v, list) and k == "tool_calls":
-                            if k not in ak:
-                                ak[k] = v
-                        else:
-                            ak[k] = v
-
-                full_message = AIMessage(
-                    content=accumulated_content,
-                    tool_calls=tool_calls,
-                    additional_kwargs=ak,
+                log.info(
+                    f"[parser] structured tool_calls={len(existing)} | "
+                    f"content_len={len(content_str)} | "
+                    f"content_full={content_str!r}"
                 )
+                if existing:
+                    log.info(f"[parser] structured calls: {existing}")
 
-                yield {
-                    "event": "on_chat_model_end",
-                    "data": {
-                        "output": full_message,
-                        "input": agent_input,
-                    },
-                }
+                # Fix 3: no structured calls but text has tool calls → synthesize
+                if not existing:
+                    synth = _synthesize_tool_calls(content_str)
+                    if synth:
+                        log.info(f"[parser] Fix3: injecting {len(synth)} synthesized call(s)")
+                        existing = synth
+                    else:
+                        log.info("[parser] Fix3: no synthesis — will become AgentFinish")
 
-                parsed = _parse_llm_output(full_message, accumulated_content)
+                # Raw additional_kwargs from API response (used in Fix 2b below)
+                raw_ak_tcs = getattr(msg, "additional_kwargs", {}).get("tool_calls", [])
+                if raw_ak_tcs:
+                    log.info(f"[parser] additional_kwargs tool_calls: {raw_ak_tcs}")
 
-                if isinstance(parsed, AgentFinish):
-                    output = parsed.return_values
-                    yield {"event": "on_chain_end", "name": "AgentExecutor", "data": {"output": output}}
-                    return
-                actions = parsed
-
-            # Execute tools
-            for action in actions:
-                yield {
-                    "event": "on_tool_start",
-                    "name": action.tool,
-                    "data": {"input": action.tool_input},
-                }
-                tool_fn = self._tools.get(action.tool)
-                if tool_fn is None:
-                    observation = f"Tool '{action.tool}' no encontrada."
-                    log.warning(f"[executor] tool not found: {action.tool}")
-                else:
+                if existing:
+                    fixed = []
+                    for tc in existing:
+                        if not isinstance(tc, dict):
+                            fixed.append(tc)
+                            continue
+                        tc = dict(tc)
+                        # Fix 1: null id
+                        if not tc.get("id"):
+                            tc["id"] = uuid.uuid4().hex[:8]
+                            log.info(f"[parser] Fix1: assigned id to {tc.get('name')}")
+                        # Fix 2: empty args — try text-format first
+                        if not tc.get("args"):
+                            recovered = _extract_text_tool_args(content_str, tc.get("name", ""))
+                            if recovered:
+                                log.info(f"[parser] Fix2: recovered args for {tc['name']}: {recovered}")
+                                tc["args"] = recovered
+                            else:
+                                log.warning(f"[parser] Fix2: could not recover args for {tc.get('name')}")
+                        # Fix 2b: fall back to additional_kwargs raw function.arguments string
+                        if not tc.get("args"):
+                            for raw in raw_ak_tcs:
+                                if not isinstance(raw, dict):
+                                    continue
+                                fn = raw.get("function", {})
+                                raw_str = fn.get("arguments", "")
+                                log.info(f"[parser] Fix2b: checking raw fn={fn.get('name')!r} arguments={raw_str!r}")
+                                if fn.get("name") == tc.get("name") and raw_str not in ("", "{}"):
+                                    r2 = _try_parse_json(raw_str)
+                                    if r2:
+                                        log.info(f"[parser] Fix2b: recovered from additional_kwargs: {r2}")
+                                        tc["args"] = r2
+                                        break
+                            if not tc.get("args"):
+                                log.warning(f"[parser] Fix2b: additional_kwargs also empty for {tc.get('name')}")
+                        fixed.append(tc)
+                    log.info(f"[parser] final calls dispatched: {[{'name': c.get('name'), 'args': c.get('args')} for c in fixed]}")
                     try:
-                        log.info(f"[executor] calling tool {action.tool}({action.tool_input})")
-                        observation = await asyncio.get_event_loop().run_in_executor(
-                            None, lambda t=tool_fn, inp=action.tool_input: t.invoke(inp)
-                        )
-                        log.info(f"[executor] tool result: {str(observation)[:120]!r}")
-                    except Exception as e:
-                        observation = f"Error ejecutando {action.tool}: {e}"
-                        log.warning(f"[executor] tool error: {e}")
-
-                yield {
-                    "event": "on_tool_end",
-                    "name": action.tool,
-                    "data": {"output": observation},
-                }
-                intermediate_steps.append((action, observation))
-
-        # max_iterations reached
-        output = {"output": "El agente alcanzó el límite de iteraciones sin respuesta final."}
-        yield {"event": "on_chain_end", "name": "AgentExecutor", "data": {"output": output}}
+                        patched_msg = msg.model_copy(update={"tool_calls": fixed})
+                        result = list(result)
+                        try:
+                            result[-1] = gen.model_copy(update={"message": patched_msg})
+                        except Exception:
+                            result[-1] = type(gen)(message=patched_msg)
+                    except AttributeError:
+                        msg.tool_calls = fixed
+        return super().parse_result(result, partial=partial)
 
 
-# ---------------------------------------------------------------------------
-# Agent chain (LLM + prompt + output parser)
-# ---------------------------------------------------------------------------
+def _build_tool_calling_agent(llm, tools, prompt):
+    """Construye el agente con output parser parcheado para ids nulos."""
+    return (
+        RunnablePassthrough.assign(
+            agent_scratchpad=lambda x: format_to_tool_messages(x["intermediate_steps"])
+        )
+        | prompt
+        | llm.bind_tools(tools)
+        | _PatchedToolsOutputParser()
+    )
 
-def _build_agent_chain(llm, tools, prompt):
-    """Builds the agent runnable: prompt | llm | parse."""
-
-    async def _invoke_chain(inputs: dict, config=None):
-        scratchpad = _format_scratchpad(inputs.get("intermediate_steps", []))
-        chain_input = {k: v for k, v in inputs.items() if k != "intermediate_steps"}
-        chain_input["agent_scratchpad"] = scratchpad
-        message = await (prompt | llm.bind_tools(tools)).ainvoke(chain_input, config=config)
-        content_str = _content_to_str(getattr(message, "content", ""))
-        return _parse_llm_output(message, content_str)
-
-    async def _stream_chain(inputs: dict, config=None):
-        scratchpad = _format_scratchpad(inputs.get("intermediate_steps", []))
-        chain_input = {k: v for k, v in inputs.items() if k != "intermediate_steps"}
-        chain_input["agent_scratchpad"] = scratchpad
-        async for chunk in (prompt | llm.bind_tools(tools)).astream(chain_input, config=config):
-            yield chunk
-
-    class _AgentChain(Runnable):
-        async def ainvoke(self, inputs, config=None):
-            return await _invoke_chain(inputs, config)
-
-        def invoke(self, inputs, config=None):
-            import asyncio as _aio
-            loop = _aio.new_event_loop()
-            try:
-                return loop.run_until_complete(_invoke_chain(inputs, config))
-            finally:
-                loop.close()
-
-        async def astream(self, inputs, config=None):
-            async for chunk in _stream_chain(inputs, config):
-                yield chunk
-
-    return _AgentChain()
-
-
-# ---------------------------------------------------------------------------
-# Public build function
-# ---------------------------------------------------------------------------
 
 def build_agent() -> RunnableWithMessageHistory:
-    """Construye y devuelve el agente listo para invoke().
+    """Construye y devuelve el agente listo para ``invoke()``.
 
-    Usa solo langchain_core + langchain_openai para compatibilidad con Python 3.14.
+    Se llama UNA sola vez y su resultado se cachea en el singleton. Así no
+    reinstanciamos el cliente LLM ni recompilamos el grafo del agente en cada
+    request. Importante: si cambias variables del .env (NVIDIA_MODEL, API
+    keys), debes reiniciar el servidor para que el agente se reconstruya.
     """
     log.debug("Building agent... provider=nvidia")
+    # Cliente del LLM (NVIDIA NIM).
     llm = _build_llm()
 
+    # Lista de tools disponibles para el agente. El orden no importa, pero
+    # los docstrings y el SYSTEM_PROMPT deben estar alineados con esta lista.
     tools = [
         get_ticker_status,
         get_ticker_history,
@@ -524,6 +371,14 @@ def build_agent() -> RunnableWithMessageHistory:
         get_fundamentals,
     ]
 
+    # Prompt del agente. Los 4 elementos son obligatorios para el tool-calling:
+    #  1. system: rol + reglas + mapa intención->tool.
+    #  2. chat_history: MessagesPlaceholder que rellena RunnableWithMessageHistory.
+    #  3. human: el input del usuario de este turno.
+    #  4. agent_scratchpad: donde el AgentExecutor escribe las llamadas a tools
+    #     y las observaciones que van recibiendo durante el bucle.
+    # Inyectamos las preferencias del usuario como sufijo del system prompt.
+    # Si el usuario aún no ha hecho onboarding, devuelve "" y se omite.
     try:
         from backend.services.preferences import render_for_prompt
         prefs_line = render_for_prompt()
@@ -538,21 +393,43 @@ def build_agent() -> RunnableWithMessageHistory:
             + prefs_line
         )
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", composed_system),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
-
-    agent_chain = _build_agent_chain(llm, tools, prompt)
-
-    executor = SimpleAgentExecutor(
-        agent_chain=agent_chain,
-        tools=tools,
-        max_iterations=20,
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", composed_system),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
     )
 
+    # Creamos el agente usando la variante tool-calling (no ReAct). Esta
+    # función devuelve un Runnable que, dado un input, produce AgentAction
+    # (llamada a tool) o AgentFinish (respuesta final) en cada paso.
+    agent = _build_tool_calling_agent(llm, tools, prompt)
+
+    # AgentExecutor es el bucle que ejecuta el agente:
+    #  - verbose=False: no volcamos trazas al stdout (la UI lo maneja aparte).
+    #  - handle_parsing_errors=True: si el LLM produce salida mal formada,
+    #    el executor reintenta en lugar de reventar.
+    #  - max_iterations=20: tope alto para que pueda ejecutar propuestas con
+    #    varias compras/ventas seguidas (cada portfolio_buy es 1 iteración) +
+    #    una llamada final a portfolio_view.
+    #  - return_intermediate_steps=False: no necesitamos los pasos en la UI;
+    #    solo nos quedamos con la respuesta final ("output").
+    executor = AgentExecutor(
+        agent=agent,
+        tools=tools,
+        verbose=False,
+        handle_parsing_errors=True,
+        max_iterations=20,
+        return_intermediate_steps=False,
+    )
+
+    # Envolvemos el executor con memoria por sesión.
+    # input_messages_key="input": le dice a RunnableWithMessageHistory qué
+    # campo del dict de entrada es el "mensaje nuevo" del usuario.
+    # history_messages_key="chat_history": dónde inyectar el historial en el
+    # prompt (coincide con el MessagesPlaceholder del ChatPromptTemplate).
     log.debug(f"Agent built successfully ({len(tools)} tools registered)")
     return RunnableWithMessageHistory(
         executor,
