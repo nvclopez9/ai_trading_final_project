@@ -17,8 +17,12 @@ powershell -NoProfile -NonInteractive -Command ^
   "Get-WmiObject Win32_Process | Where-Object { ($_.Name -eq 'python.exe' -and $_.CommandLine -match 'uvicorn') -or ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'vite') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 timeout /t 3 /nobreak > nul
 
-echo [2/4] Arrancando Backend en :8000 ...
-start "Backend :8000" cmd /k ".venv\Scripts\python.exe -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"
+echo [2/4] Arrancando Ollama ...
+start "Ollama" /min cmd /c "C:\Users\nvclo\AppData\Local\Programs\Ollama\ollama.exe serve"
+timeout /t 2 /nobreak > nul
+
+echo [3/4] Arrancando Backend en :8000 ...
+start "Backend :8000" cmd /k "C:\Python314\python.exe run_server.py"
 
 timeout /t 4 /nobreak > nul
 

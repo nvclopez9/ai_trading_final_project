@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routers import portfolio, market, chat, news, preferences, watchlist
+from backend.services.db import init_db
 
 app = FastAPI(
     title="Bot de Inversiones API",
@@ -45,6 +46,11 @@ _FILE_FMT = logging.Formatter(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 _CONSOLE_FMT = logging.Formatter("[%(levelname)s] %(name)s | %(message)s")
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    init_db()
 
 
 @app.on_event("startup")
